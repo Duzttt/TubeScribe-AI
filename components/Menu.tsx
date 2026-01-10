@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Video, ArrowRight, Sparkles, Send, Bot, Sparkle, Sun, Moon } from 'lucide-react';
+import { Video, ArrowRight, Sparkles, Send, Bot, Sun, Moon } from 'lucide-react';
 import { ChatMessage } from '../types';
 import * as GeminiService from '../services/geminiService';
 import ReactMarkdown from 'react-markdown';
@@ -80,7 +80,6 @@ const Menu: React.FC<MenuProps> = ({ onStart, isDarkMode, toggleTheme }) => {
       {/* Nav */}
       <nav className="p-4 flex justify-end flex-shrink-0 z-10">
         {toggleTheme && (
-          // UPDATED: Reduced padding and icon size
           <button
             onClick={toggleTheme}
             className="p-2 sm:p-2.5 rounded-full bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white transition-all"
@@ -92,7 +91,7 @@ const Menu: React.FC<MenuProps> = ({ onStart, isDarkMode, toggleTheme }) => {
 
       {/* Main Content Area */}
       <div className="flex-grow flex flex-col p-4 lg:p-8 overflow-hidden">
-        {/* UPDATED: Changed grid to 8 columns. Left=5, Right=3 (3/8ths) */}
+        {/* Grid: Left=5, Right=3 (3/8ths) */}
         <div className="max-w-[1920px] w-full mx-auto grid grid-cols-1 lg:grid-cols-8 gap-6 lg:gap-12 flex-grow h-full text-center lg:text-left">
 
           {/* Left Column: Intro & Actions (Takes 5/8 space) */}
@@ -135,9 +134,7 @@ const Menu: React.FC<MenuProps> = ({ onStart, isDarkMode, toggleTheme }) => {
               <ArrowRight size={24} className="group-hover:translate-x-1 transition-transform" />
             </button>
 
-            <p className="text-sm text-gray-400 dark:text-gray-500 font-medium flex items-center justify-center lg:justify-start gap-2">
-              <Sparkle size={16} /> Powered by Gemini 2.0 Flash
-            </p>
+            {/* REMOVED "Powered by Gemini" text here */}
           </div>
 
           {/* Right Column: Embedded Chat Guide (Takes 3/8 space) */}
@@ -169,8 +166,8 @@ const Menu: React.FC<MenuProps> = ({ onStart, isDarkMode, toggleTheme }) => {
                     </div>
                   )}
                   <div className={`max-w-[85%] px-4 py-3 rounded-2xl text-sm leading-relaxed shadow-sm ${msg.role === 'user'
-                      ? 'bg-blue-600 text-white rounded-br-sm'
-                      : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-bl-sm border border-transparent dark:border-gray-700'
+                    ? 'bg-blue-600 text-white rounded-br-sm'
+                    : 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 rounded-bl-sm border border-transparent dark:border-gray-700'
                     }`}>
                     <ReactMarkdown
                       className={`prose prose-sm max-w-none ${msg.role === 'user' ? 'prose-invert' : 'dark:prose-invert'}`}
