@@ -42,12 +42,14 @@ export const generateTranscript = async (
     
       INSTRUCTIONS:
       1. **SEARCH**: Use 'googleSearch' to find the official captions or transcript for this video.
-      2. **SPEECH TO TEXT & AUDIO ONLY**: Listen STRICTLY to the spoken audio track.
-      3. **FORMAT**:
+      2. If you find a transcript, ensure it matches the video title exactly.
+      3. **SPEECH TO TEXT & AUDIO ONLY**: Listen STRICTLY to the spoken audio track.
+      4. **DO NOT GENERATE TEXT YOURSELF.** If you cannot find an existing transcript on the web, you MUST return the string "NO_TRANSCRIPT_FOUND".
+      5. **FORMAT**:
         - **INCLUDE TIMESTAMPS** (e.g., [00:30], [01:45]) for every new speaker or significant segment. This is crucial for navigation.
         - Format as: "**[Timestamp] Speaker:** Text" (Use double newlines between speakers for clarity).
-      4. **IGNORE METADATA**: Do NOT include text from the YouTube video description, video title, or tags.  
-      5. **LANGUAGE & TRANSLATION**:
+      6. **IGNORE METADATA**: Do NOT include text from the YouTube video description, video title, or tags.  
+      7. **LANGUAGE & TRANSLATION**:
         ${isOriginal
         ? `- Output the transcript in the **ORIGINAL SPOKEN LANGUAGE**. Do not translate it.`
         : `- **TRANSLATE** the entire transcript into **${targetLanguage}**.`
