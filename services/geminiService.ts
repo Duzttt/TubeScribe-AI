@@ -22,9 +22,9 @@ export const generateTranscript = async (
   targetLanguage: TargetLanguage = TargetLanguage.ORIGINAL
 ): Promise<string> => {
   const ai = getAiClient();
-  
+
   const isOriginal = targetLanguage === TargetLanguage.ORIGINAL;
-  
+
   const prompt = `
     Video URL: ${videoUrl}
     
@@ -35,20 +35,21 @@ export const generateTranscript = async (
     
     INSTRUCTIONS:
     1. **SEARCH**: Use 'googleSearch' to find the official captions or transcript for this video.
-    2. **FORMAT**: 
+    2. **AUDIO ONLY**: Listen STRICTLY to the spoken audio track.
+    3. **FORMAT**: 
        - **INCLUDE TIMESTAMPS** (e.g., [00:30], [01:45]) for every new speaker or significant segment. This is crucial for navigation.
        - Format as: "**[Timestamp] Speaker:** Text" (Use double newlines between speakers for clarity).
-    3. **SPEECH-TO-TEXT RECONSTRUCTION**: 
-       - If an official transcript is NOT available, you must **reconstruct the likely dialogue** based on the video's title, description, and available search information.
-    4. **LANGUAGE & TRANSLATION**:
-       ${isOriginal 
-         ? `- Output the transcript in the **ORIGINAL SPOKEN LANGUAGE**. Do not translate it.` 
-         : `- **TRANSLATE** the entire transcript into **${targetLanguage}**.`
-       }
+    4. **SPEECH-TO-TEXT RECONSTRUCTION**: 
+       - If an official transcript is NOT available, you must **reconstruct the likely dialogue** based on the video's title and available search information.
+    5. **IGNORE METADATA**: Do NOT include text from the YouTube video description, video title, or tags.   
+    6. **LANGUAGE & TRANSLATION**:
+       ${isOriginal
+      ? `- Output the transcript in the **ORIGINAL SPOKEN LANGUAGE**. Do not translate it.`
+      : `- **TRANSLATE** the entire transcript into **${targetLanguage}**.`
+    }
 
     CONSTRAINTS:
     - If the video is music, transcribe the lyrics.
-    - If the video is silent or visual-only, describe the events.
   `;
 
   try {
@@ -57,7 +58,7 @@ export const generateTranscript = async (
       contents: prompt,
       config: {
         tools: [{ googleSearch: {} }],
-        temperature: 0.4, 
+        temperature: 0.4,
       }
     });
 
@@ -78,8 +79,8 @@ export const generateSummary = async (
 ): Promise<string> => {
   const ai = getAiClient();
 
-  const langInstruction = targetLanguage === TargetLanguage.ORIGINAL 
-    ? "in the video's original language" 
+  const langInstruction = targetLanguage === TargetLanguage.ORIGINAL
+    ? "in the video's original language"
     : `in ${targetLanguage}`;
 
   let prompt = `
@@ -126,7 +127,7 @@ export const translateContent = async (
   targetLanguage: TargetLanguage
 ): Promise<string> => {
   const ai = getAiClient();
-  
+
   if (targetLanguage === TargetLanguage.ORIGINAL) {
     return text; // No op
   }
@@ -169,7 +170,7 @@ export const sendChatMessage = async (
   context?: string
 ): Promise<string> => {
   const ai = getAiClient();
-  
+
   const prompt = `
     You are an intelligent video assistant.
     
@@ -215,7 +216,7 @@ export const sendGuideMessage = async (
   newMessage: string
 ): Promise<string> => {
   const ai = getAiClient();
-  
+
   const systemInstruction = `You are the friendly and intelligent Project Guide for "TubeScribe AI".
   Your purpose is to assist users in understanding and navigating this web application.
 
