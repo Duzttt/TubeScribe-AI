@@ -59,7 +59,7 @@ export const generateTranscript = async (
 
     // TIMEOUT TRICK: Create a promise that rejects after 5 seconds
     const timeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Search timed out")), 5000)
+      setTimeout(() => reject(new Error("Search timed out")), 60000)
     );
 
     // The actual API call
