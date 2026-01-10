@@ -12,7 +12,7 @@ const getAiClient = () => {
 // Using gemini-3-flash-preview for text tasks as per guidelines
 const TEXT_MODEL = "gemini-3-flash-preview";
 
-const BACKEND_URL = "https://kaiwen03-tubescribe-backend.hf.space/api/transcribe";
+const BACKEND_URL = "https://kaiwen03-tubescribe-backend.hf.space";
 /**
  * Generates a transcript from a YouTube URL.
  * HYBRID STRATEGY:
