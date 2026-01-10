@@ -39,10 +39,20 @@ const App: React.FC = () => {
   });
 
   const [status, setStatus] = useState<ProcessingStatus>(ProcessingStatus.IDLE);
+
+  // Content State
   const [transcript, setTranscript] = useState<string>('');
   const [summary, setSummary] = useState<string>('');
   const [translation, setTranslation] = useState<string>('');
+
+  // Input State (Dropdown)
   const [targetLang, setTargetLang] = useState<TargetLanguage>(TargetLanguage.ORIGINAL);
+
+  // Output State (Preserves the language of the generated content)
+  const [displayedTranscriptLang, setDisplayedTranscriptLang] = useState<TargetLanguage>(TargetLanguage.ORIGINAL);
+  const [displayedSummaryLang, setDisplayedSummaryLang] = useState<TargetLanguage>(TargetLanguage.ORIGINAL);
+  const [displayedTranslationLang, setDisplayedTranslationLang] = useState<TargetLanguage>(TargetLanguage.ORIGINAL);
+
   const [translationSource, setTranslationSource] = useState<'transcript' | 'summary'>('transcript');
 
   // Chat state
@@ -85,6 +95,10 @@ const App: React.FC = () => {
     setSummary('');
     setTranslation('');
     setChatMessages([]);
+    // Reset displayed languages
+    setDisplayedTranscriptLang(TargetLanguage.ORIGINAL);
+    setDisplayedSummaryLang(TargetLanguage.ORIGINAL);
+    setDisplayedTranslationLang(TargetLanguage.ORIGINAL);
   };
 
   const handleUrlChange = (newUrl: string) => {
@@ -100,6 +114,7 @@ const App: React.FC = () => {
     try {
       const result = await GeminiService.generateTranscript(videoUrl, targetLang);
       setTranscript(result);
+      setDisplayedTranscriptLang(targetLang); // Lock in language
       setStatus(ProcessingStatus.COMPLETED);
     } catch (error) {
       console.error(error);
@@ -118,6 +133,7 @@ const App: React.FC = () => {
     try {
       const result = await GeminiService.generateSummary(videoUrl, transcript, targetLang);
       setSummary(result);
+      setDisplayedSummaryLang(targetLang); // Lock in language
       setStatus(ProcessingStatus.COMPLETED);
     } catch (error) {
       console.error(error);
@@ -143,6 +159,7 @@ const App: React.FC = () => {
     try {
       const result = await GeminiService.translateContent(sourceText, targetLang);
       setTranslation(result);
+      setDisplayedTranslationLang(targetLang); // Lock in language
       setStatus(ProcessingStatus.COMPLETED);
     } catch (error) {
       console.error(error);
@@ -387,11 +404,11 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {/* UPDATED: Container uses flex-grow and h-0 to allow children to handle scrolling */}
+            {/* Content Area */}
             <div className="flex-grow h-0 min-h-[500px] lg:min-h-0">
               {activeTab === 'transcript' && (
                 <ResultCard
-                  title={`Transcript ${isTranslating ? `(${targetLang})` : '(Original)'}`}
+                  title={`Transcript ${displayedTranscriptLang !== TargetLanguage.ORIGINAL ? `(${displayedTranscriptLang})` : '(Original)'}`}
                   content={transcript}
                   isLoading={loadingTranscript}
                   type="markdown"
@@ -400,7 +417,7 @@ const App: React.FC = () => {
               )}
               {activeTab === 'summary' && (
                 <ResultCard
-                  title={`Summary ${isTranslating ? `(${targetLang})` : ''}`}
+                  title={`Summary ${displayedSummaryLang !== TargetLanguage.ORIGINAL ? `(${displayedSummaryLang})` : ''}`}
                   content={summary}
                   isLoading={loadingSummary}
                   type="markdown"
@@ -409,7 +426,7 @@ const App: React.FC = () => {
               )}
               {activeTab === 'translation' && (
                 <ResultCard
-                  title={`Translation (${targetLang}) - Source: ${translationSource}`}
+                  title={`Translation (${displayedTranslationLang}) - Source: ${translationSource}`}
                   content={translation}
                   isLoading={loadingTranslation}
                   type="markdown"
