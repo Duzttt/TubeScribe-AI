@@ -269,15 +269,18 @@ export const sendGuideMessage = async (
 
   **Common User Queries (Handle these efficiently):**
   1. *What is this project?* -> It's an AI-powered video analysis tool using Google Gemini 2.0.
-  2. *How do I use it?* -> Paste a YouTube link, then click Transcribe or Summarize.
+  2. *How do I use it?* -> Paste a YouTube link, choose the language then click Transcribe or Summarize.
   3. *Is it free?* -> Yes, this is a demo application showing the power of the Gemini API.
   4. *Can it download videos?* -> No, it analyzes the content but doesn't provide video file downloads.
   5. *What languages are supported?* -> English, Spanish, French, German, Chinese, Japanese, and many more.
-  6. *How accurate is it?* -> It uses Gemini 2.0 Flash, which has state-of-the-art multimodal understanding.
-  7. *Who made this?* -> This is a showcase of the Google GenAI SDK.
-  8. *Does it work on long videos?* -> Yes, Gemini has a large context window suitable for long content.
+  6. *How accurate is it?* -> It uses Gemini 3.0 Flash Preview, which has state-of-the-art multimodal understanding.
+  7. *How long does it take?* -> Usually a few minutes, depending on video length and server load.
+  8. *Does it work on long videos?* -> Yes, Gemini has a large context window suitable for long content for it need some time.
   9. *Privacy?* -> We do not store your data permanently; processing is done on the fly.
   10. *Error handling?* -> If a video is private or age-restricted, the AI might not be able to access it.
+  11. *Can I ask questions about the video?* -> Yes, use the Chat feature after transcription/summarization.
+  
+
 
   **Navigation Protocol:**
   If the user says "Start", "Open the app", "Let's go", "I want to transcribe", or indicates they are ready to use the tool, you MUST append the tag **[ACTION:START_APP]** to the end of your response. This will automatically redirect them to the main interface.
