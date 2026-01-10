@@ -105,7 +105,7 @@ const Menu: React.FC<MenuProps> = ({ onStart, isDarkMode, toggleTheme }) => {
                   TubeScribe <span className="text-transparent bg-clip-text bg-gradient-to-r from-red-600 to-orange-500">AI</span>
                 </h1>
                 <p className="mt-6 text-lg sm:text-xl text-gray-600 dark:text-gray-300 max-w-lg mx-auto lg:mx-0 leading-relaxed font-light">
-                  Transform YouTube videos into actionable insights.
+                  Unlimited, batch transcribe YouTube videos and playlists into accurate text in any language in just seconds.
                   <span className="block mt-2 font-normal text-gray-900 dark:text-gray-100">Transcribe. Summarize. Translate. Chat.</span>
                 </p>
               </div>
