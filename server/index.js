@@ -69,7 +69,6 @@ app.post('/api/transcribe', async (req, res) => {
     try {
         console.log("Strategy 2: Downloading audio with yt-dlp...");
 
-        // Define flags to mimic a real browser
         const ytdlFlags = {
             extractAudio: true,
             audioFormat: 'mp3',
@@ -77,7 +76,9 @@ app.post('/api/transcribe', async (req, res) => {
             noCheckCertificates: true,
             noWarnings: true,
             preferFreeFormats: true,
-            // Mimic a real Chrome browser on Windows
+            // --- FIX FOR "No Address" ERROR ---
+            forceIpv4: true,
+            // ----------------------------------
             userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             referer: 'https://www.youtube.com/',
         };
