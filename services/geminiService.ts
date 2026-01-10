@@ -57,43 +57,37 @@ export const generateTranscript = async (
       - If the video is music, transcribe the lyrics.
     `;
 
-    // TIMEOUT TRICK: Create a promise that rejects after 5 seconds
-    const timeout = new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Search timed out")), 60000)
-    );
 
-    // The actual API call
-    const apiCall = ai.models.generateContent({
+    const searchResponse = await ai.models.generateContent({
       model: TEXT_MODEL,
       contents: searchPrompt,
       config: {
         tools: [{ googleSearch: {} }],
-        temperature: 0.1,
+        temperature: 0.1, // Low temp to prevent hallucination
       }
     });
 
-    // Race them: whichever finishes first wins. 
-    // If apiCall is slow, timeout wins and throws an error, triggering the catch block.
-    // @ts-ignore
-    const searchResponse = await Promise.race([apiCall, timeout]);
-
-    // @ts-ignore
     const text = searchResponse.text;
 
+    // If we got a valid transcript (not the error code, and reasonable length)
     if (text && !text.includes("NO_TRANSCRIPT_FOUND") && text.length > 100) {
       console.log("✅ Captions found via Search.");
       return text;
     }
 
     console.warn("⚠️ No captions found via Search. Falling back to Backend...");
+
   } catch (error) {
-    // This catches the timeout error or any API error
-    console.warn(`⚠️ Strategy 1 skipped: ${error.message || "Search failed"}. Falling back to Backend...`);
+    console.warn("⚠️ Frontend Search failed or error occurred. Falling back to Backend...", error);
   }
 
   // --- STEP 2: Backend Fallback (Audio Processing) ---
   try {
     console.log("Strategy 2: Calling Backend to download and transcribe audio...");
+
+    if (BACKEND_URL.includes("YOUR-SPACE-NAME")) {
+      throw new Error("Backend URL not configured in geminiService.ts");
+    }
 
     const response = await fetch(BACKEND_URL, {
       method: 'POST',
