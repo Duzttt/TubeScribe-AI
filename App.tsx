@@ -39,21 +39,10 @@ const App: React.FC = () => {
   });
 
   const [status, setStatus] = useState<ProcessingStatus>(ProcessingStatus.IDLE);
-
-  // Content State
   const [transcript, setTranscript] = useState<string>('');
   const [summary, setSummary] = useState<string>('');
   const [translation, setTranslation] = useState<string>('');
-
-  // Input State (The Dropdown)
   const [targetLang, setTargetLang] = useState<TargetLanguage>(TargetLanguage.ORIGINAL);
-
-  // Output Meta State (The Language of the currently generated text)
-  // These ensure the titles don't change until you actually click the button
-  const [displayedTranscriptLang, setDisplayedTranscriptLang] = useState<TargetLanguage>(TargetLanguage.ORIGINAL);
-  const [displayedSummaryLang, setDisplayedSummaryLang] = useState<TargetLanguage>(TargetLanguage.ORIGINAL);
-  const [displayedTranslationLang, setDisplayedTranslationLang] = useState<TargetLanguage>(TargetLanguage.ORIGINAL);
-
   const [translationSource, setTranslationSource] = useState<'transcript' | 'summary'>('transcript');
 
   // Chat state
@@ -66,6 +55,7 @@ const App: React.FC = () => {
   const [loadingTranslation, setLoadingTranslation] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'transcript' | 'summary' | 'translation' | 'chat'>('transcript');
+
   // Toggle Dark Mode
   useEffect(() => {
     if (isDarkMode) {
@@ -95,10 +85,6 @@ const App: React.FC = () => {
     setSummary('');
     setTranslation('');
     setChatMessages([]);
-    // Reset displayed languages
-    setDisplayedTranscriptLang(TargetLanguage.ORIGINAL);
-    setDisplayedSummaryLang(TargetLanguage.ORIGINAL);
-    setDisplayedTranslationLang(TargetLanguage.ORIGINAL);
   };
 
   const handleUrlChange = (newUrl: string) => {
@@ -114,8 +100,6 @@ const App: React.FC = () => {
     try {
       const result = await GeminiService.generateTranscript(videoUrl, targetLang);
       setTranscript(result);
-      // Lock in the language used for this generation
-      setDisplayedTranscriptLang(targetLang);
       setStatus(ProcessingStatus.COMPLETED);
     } catch (error) {
       console.error(error);
@@ -134,8 +118,6 @@ const App: React.FC = () => {
     try {
       const result = await GeminiService.generateSummary(videoUrl, transcript, targetLang);
       setSummary(result);
-      // Lock in the language used for this generation
-      setDisplayedSummaryLang(targetLang);
       setStatus(ProcessingStatus.COMPLETED);
     } catch (error) {
       console.error(error);
@@ -161,8 +143,6 @@ const App: React.FC = () => {
     try {
       const result = await GeminiService.translateContent(sourceText, targetLang);
       setTranslation(result);
-      // Lock in the language used for this generation
-      setDisplayedTranslationLang(targetLang);
       setStatus(ProcessingStatus.COMPLETED);
     } catch (error) {
       console.error(error);
@@ -210,8 +190,8 @@ const App: React.FC = () => {
 
   const isTranslating = targetLang !== TargetLanguage.ORIGINAL;
 
-
   return (
+    // UPDATED: Use lg:h-screen and lg:overflow-hidden to prevent body scroll on desktop
     <div className="min-h-screen lg:h-screen bg-gray-50 dark:bg-gray-900 flex flex-col transition-colors duration-300 overflow-y-auto lg:overflow-hidden">
       {/* Header */}
       <header className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-700 sticky top-0 z-20 flex-shrink-0">
@@ -250,7 +230,7 @@ const App: React.FC = () => {
       <main className="flex-grow w-full max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 py-4 lg:py-6 overflow-hidden">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full">
 
-          {/* Left Column: Input & Controls */}
+          {/* Left Column: Input & Controls - SCROLLABLE on Desktop */}
           <div className="lg:col-span-5 flex flex-col gap-4 lg:h-full lg:overflow-y-auto lg:pr-2 custom-scrollbar">
 
             {/* YouTube Input Area */}
@@ -407,11 +387,11 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {/* Content Area */}
+            {/* UPDATED: Container uses flex-grow and h-0 to allow children to handle scrolling */}
             <div className="flex-grow h-0 min-h-[500px] lg:min-h-0">
               {activeTab === 'transcript' && (
                 <ResultCard
-                  title={`Transcript ${displayedTranscriptLang !== TargetLanguage.ORIGINAL ? `(${displayedTranscriptLang})` : '(Original)'}`}
+                  title={`Transcript ${isTranslating ? `(${targetLang})` : '(Original)'}`}
                   content={transcript}
                   isLoading={loadingTranscript}
                   type="markdown"
@@ -420,7 +400,7 @@ const App: React.FC = () => {
               )}
               {activeTab === 'summary' && (
                 <ResultCard
-                  title={`Summary ${displayedSummaryLang !== TargetLanguage.ORIGINAL ? `(${displayedSummaryLang})` : ''}`}
+                  title={`Summary ${isTranslating ? `(${targetLang})` : ''}`}
                   content={summary}
                   isLoading={loadingSummary}
                   type="markdown"
@@ -429,7 +409,7 @@ const App: React.FC = () => {
               )}
               {activeTab === 'translation' && (
                 <ResultCard
-                  title={`Translation (${displayedTranslationLang}) - Source: ${translationSource}`}
+                  title={`Translation (${targetLang}) - Source: ${translationSource}`}
                   content={translation}
                   isLoading={loadingTranslation}
                   type="markdown"
