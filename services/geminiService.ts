@@ -12,58 +12,101 @@ const getAiClient = () => {
 // Using gemini-3-flash-preview for text tasks as per guidelines
 const TEXT_MODEL = "gemini-3-flash-preview";
 
+const BACKEND_URL = "https://kaiwen03-tubescribe-backend.hf.space";
 /**
  * Generates a transcript from a YouTube URL.
- * Uses Google Search grounding to find content. 
- * If transcript is missing, it attempts to reconstruct speech from search data ("speech to text yourself" behavior).
+ * HYBRID STRATEGY:
+ * 1. Tries to find existing captions via Google Search (Fast).
+ * 2. If no captions found, falls back to Backend Audio Download (Slow but guaranteed).
  */
 export const generateTranscript = async (
   videoUrl: string,
   targetLanguage: TargetLanguage = TargetLanguage.ORIGINAL
 ): Promise<string> => {
+
   const ai = getAiClient();
 
   const isOriginal = targetLanguage === TargetLanguage.ORIGINAL;
 
-  const prompt = `
-    Video URL: ${videoUrl}
-    
-    You are an expert Video Transcriber and Translator.
-    
-    TASK:
-    Generate a text transcript of the spoken content in this video.
-    
-    INSTRUCTIONS:
-    1. **SEARCH**: Use 'googleSearch' to find the official captions or transcript for this video.
-    2. **SPEECH TO TEXT & AUDIO ONLY**: Listen STRICTLY to the spoken audio track.
-    3. **FORMAT**: 
-       - **INCLUDE TIMESTAMPS** (e.g., [00:30], [01:45]) for every new speaker or significant segment. This is crucial for navigation.
-       - Format as: "**[Timestamp] Speaker:** Text" (Use double newlines between speakers for clarity).
-    4. **IGNORE METADATA**: Do NOT include text from the YouTube video description, video title, or tags.   
-    5. **LANGUAGE & TRANSLATION**:
-       ${isOriginal
-      ? `- Output the transcript in the **ORIGINAL SPOKEN LANGUAGE**. Do not translate it.`
-      : `- **TRANSLATE** the entire transcript into **${targetLanguage}**.`
-    }
-
-    CONSTRAINTS:
-    - If the video is music, transcribe the lyrics.
-  `;
-
+  // --- STEP 1: Try Frontend Search (Captions) ---
   try {
-    const response = await ai.models.generateContent({
+    console.log("Strategy 1: Attempting to find captions via Google Search...");
+
+    const searchPrompt = `
+      Video URL: ${videoUrl}
+   
+      You are an expert Video Transcriber and Translator.
+    
+      TASK:
+      Generate a text transcript of the spoken content in this video.
+    
+      INSTRUCTIONS:
+      1. **SEARCH**: Use 'googleSearch' to find the official captions or transcript for this video.
+      2. **SPEECH TO TEXT & AUDIO ONLY**: Listen STRICTLY to the spoken audio track.
+      3. **FORMAT**:
+        - **INCLUDE TIMESTAMPS** (e.g., [00:30], [01:45]) for every new speaker or significant segment. This is crucial for navigation.
+        - Format as: "**[Timestamp] Speaker:** Text" (Use double newlines between speakers for clarity).
+      4. **IGNORE METADATA**: Do NOT include text from the YouTube video description, video title, or tags.  
+      5. **LANGUAGE & TRANSLATION**:
+        ${isOriginal
+        ? `- Output the transcript in the **ORIGINAL SPOKEN LANGUAGE**. Do not translate it.`
+        : `- **TRANSLATE** the entire transcript into **${targetLanguage}**.`
+      }
+
+      CONSTRAINTS:
+      - If the video is music, transcribe the lyrics.
+    `;
+
+
+    const searchResponse = await ai.models.generateContent({
       model: TEXT_MODEL,
-      contents: prompt,
+      contents: searchPrompt,
       config: {
         tools: [{ googleSearch: {} }],
-        temperature: 0.4,
+        temperature: 0.1, // Low temp to prevent hallucination
       }
     });
 
-    return response.text || "No transcript generated.";
+    const text = searchResponse.text;
+
+    // If we got a valid transcript (not the error code, and reasonable length)
+    if (text && !text.includes("NO_TRANSCRIPT_FOUND") && text.length > 100) {
+      console.log("✅ Captions found via Search.");
+      return text;
+    }
+
+    console.warn("⚠️ No captions found via Search. Falling back to Backend...");
+
   } catch (error) {
-    console.error("Error generating transcript:", error);
-    throw new Error("Failed to generate transcript. The video might be inaccessible.");
+    console.warn("⚠️ Frontend Search failed or error occurred. Falling back to Backend...", error);
+  }
+
+  // --- STEP 2: Backend Fallback (Audio Processing) ---
+  try {
+    console.log("Strategy 2: Calling Backend to download and transcribe audio...");
+
+    if (BACKEND_URL.includes("YOUR-SPACE-NAME")) {
+      throw new Error("Backend URL not configured in geminiService.ts");
+    }
+
+    const response = await fetch(BACKEND_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ videoUrl, targetLanguage }),
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error || 'Backend transcription failed');
+    }
+
+    const data = await response.json();
+    console.log("✅ Audio successfully transcribed by Backend.");
+    return data.transcript;
+
+  } catch (backendError) {
+    console.error("❌ Both strategies failed:", backendError);
+    throw new Error("Failed to generate transcript. Video has no captions and Backend could not process audio.");
   }
 };
 
