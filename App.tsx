@@ -1,9 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  FileText, 
-  Languages, 
-  Sparkles, 
-  Video, 
+import {
+  FileText,
+  Languages,
+  Sparkles,
+  Video,
   ArrowRight,
   Globe,
   MessageCircle,
@@ -17,9 +17,9 @@ import YouTubeInput from './components/YouTubeInput';
 import ResultCard from './components/ResultCard';
 import ChatInterface from './components/ChatInterface';
 import Menu from './components/Menu';
-import { 
-  ProcessingStatus, 
-  TargetLanguage, 
+import {
+  ProcessingStatus,
+  TargetLanguage,
   ChatMessage
 } from './types';
 import * as GeminiService from './services/geminiService';
@@ -28,34 +28,44 @@ import './index.css';
 const App: React.FC = () => {
   const [view, setView] = useState<'menu' | 'app'>('menu');
   const [videoUrl, setVideoUrl] = useState('');
-  
+
   // Theme State
   const [isDarkMode, setIsDarkMode] = useState(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem('theme') === 'dark' || 
+      return localStorage.getItem('theme') === 'dark' ||
         (!localStorage.getItem('theme') && window.matchMedia('(prefers-color-scheme: dark)').matches);
     }
     return false;
   });
 
   const [status, setStatus] = useState<ProcessingStatus>(ProcessingStatus.IDLE);
+
+  // Content State
   const [transcript, setTranscript] = useState<string>('');
   const [summary, setSummary] = useState<string>('');
   const [translation, setTranslation] = useState<string>('');
+
+  // Input State (The Dropdown)
   const [targetLang, setTargetLang] = useState<TargetLanguage>(TargetLanguage.ORIGINAL);
+
+  // Output Meta State (The Language of the currently generated text)
+  // These ensure the titles don't change until you actually click the button
+  const [displayedTranscriptLang, setDisplayedTranscriptLang] = useState<TargetLanguage>(TargetLanguage.ORIGINAL);
+  const [displayedSummaryLang, setDisplayedSummaryLang] = useState<TargetLanguage>(TargetLanguage.ORIGINAL);
+  const [displayedTranslationLang, setDisplayedTranslationLang] = useState<TargetLanguage>(TargetLanguage.ORIGINAL);
+
   const [translationSource, setTranslationSource] = useState<'transcript' | 'summary'>('transcript');
-  
+
   // Chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
-  
+
   // Track specific loading states
   const [loadingTranscript, setLoadingTranscript] = useState(false);
   const [loadingSummary, setLoadingSummary] = useState(false);
   const [loadingTranslation, setLoadingTranslation] = useState(false);
 
   const [activeTab, setActiveTab] = useState<'transcript' | 'summary' | 'translation' | 'chat'>('transcript');
-
   // Toggle Dark Mode
   useEffect(() => {
     if (isDarkMode) {
@@ -76,7 +86,7 @@ const App: React.FC = () => {
   };
 
   const handleReturnToMenu = () => {
-     setView('menu');
+    setView('menu');
   };
 
   const handleUrlSubmit = () => {
@@ -85,6 +95,10 @@ const App: React.FC = () => {
     setSummary('');
     setTranslation('');
     setChatMessages([]);
+    // Reset displayed languages
+    setDisplayedTranscriptLang(TargetLanguage.ORIGINAL);
+    setDisplayedSummaryLang(TargetLanguage.ORIGINAL);
+    setDisplayedTranslationLang(TargetLanguage.ORIGINAL);
   };
 
   const handleUrlChange = (newUrl: string) => {
@@ -96,10 +110,12 @@ const App: React.FC = () => {
     setLoadingTranscript(true);
     setStatus(ProcessingStatus.PROCESSING);
     setActiveTab('transcript');
-    
+
     try {
       const result = await GeminiService.generateTranscript(videoUrl, targetLang);
       setTranscript(result);
+      // Lock in the language used for this generation
+      setDisplayedTranscriptLang(targetLang);
       setStatus(ProcessingStatus.COMPLETED);
     } catch (error) {
       console.error(error);
@@ -114,10 +130,12 @@ const App: React.FC = () => {
     setLoadingSummary(true);
     setStatus(ProcessingStatus.PROCESSING);
     setActiveTab('summary');
-    
+
     try {
       const result = await GeminiService.generateSummary(videoUrl, transcript, targetLang);
       setSummary(result);
+      // Lock in the language used for this generation
+      setDisplayedSummaryLang(targetLang);
       setStatus(ProcessingStatus.COMPLETED);
     } catch (error) {
       console.error(error);
@@ -129,7 +147,7 @@ const App: React.FC = () => {
 
   const handleTranslate = async (source: 'transcript' | 'summary' = 'transcript') => {
     const sourceText = source === 'transcript' ? transcript : summary;
-    
+
     if (!sourceText) {
       alert(`Please generate a ${source} first to translate.`);
       return;
@@ -143,6 +161,8 @@ const App: React.FC = () => {
     try {
       const result = await GeminiService.translateContent(sourceText, targetLang);
       setTranslation(result);
+      // Lock in the language used for this generation
+      setDisplayedTranslationLang(targetLang);
       setStatus(ProcessingStatus.COMPLETED);
     } catch (error) {
       console.error(error);
@@ -166,16 +186,16 @@ const App: React.FC = () => {
     setChatLoading(true);
 
     try {
-      const context = summary || transcript || ''; 
+      const context = summary || transcript || '';
       const responseText = await GeminiService.sendChatMessage(chatMessages, text, videoUrl, context);
-      
+
       const botMsg: ChatMessage = {
         id: (Date.now() + 1).toString(),
         role: 'model',
         text: responseText,
         timestamp: Date.now()
       };
-      
+
       setChatMessages(prev => [...prev, botMsg]);
     } catch (error) {
       console.error("Chat error:", error);
@@ -190,20 +210,20 @@ const App: React.FC = () => {
 
   const isTranslating = targetLang !== TargetLanguage.ORIGINAL;
 
+
   return (
-    // UPDATED: Use lg:h-screen and lg:overflow-hidden to prevent body scroll on desktop
     <div className="min-h-screen lg:h-screen bg-gray-50 dark:bg-gray-900 flex flex-col transition-colors duration-300 overflow-y-auto lg:overflow-hidden">
       {/* Header */}
       <header className="bg-white/80 dark:bg-gray-900/80 backdrop-blur-md border-b border-gray-200 dark:border-gray-700 sticky top-0 z-20 flex-shrink-0">
         <div className="max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 h-16 sm:h-20 flex items-center justify-between">
           <div className="flex items-center gap-3 sm:gap-5">
-             <button 
-               onClick={handleReturnToMenu} 
-               className="p-2 sm:p-2.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full text-gray-500 dark:text-gray-400 transition-colors" 
-               title="Back to Menu"
-             >
-                <Home size={20} className="sm:w-6 sm:h-6" />
-             </button>
+            <button
+              onClick={handleReturnToMenu}
+              className="p-2 sm:p-2.5 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-full text-gray-500 dark:text-gray-400 transition-colors"
+              title="Back to Menu"
+            >
+              <Home size={20} className="sm:w-6 sm:h-6" />
+            </button>
             <div className="flex items-center gap-2 sm:gap-3">
               <div className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-red-600 to-red-500 rounded-xl flex items-center justify-center text-white shadow-lg shadow-red-500/30">
                 <Video size={18} className="sm:w-6 sm:h-6" fill="currentColor" />
@@ -220,7 +240,7 @@ const App: React.FC = () => {
               {isDarkMode ? <Sun size={20} className="sm:w-6 sm:h-6" /> : <Moon size={20} className="sm:w-6 sm:h-6" />}
             </button>
             <div className="hidden sm:flex items-center gap-6 text-base font-medium text-gray-500 dark:text-gray-400">
-               <span className="text-xs sm:text-sm px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700">YouTube Mode</span>
+              <span className="text-xs sm:text-sm px-3 py-1.5 bg-gray-100 dark:bg-gray-800 rounded-md border border-gray-200 dark:border-gray-700">YouTube Mode</span>
             </div>
           </div>
         </div>
@@ -229,18 +249,18 @@ const App: React.FC = () => {
       {/* Main Content */}
       <main className="flex-grow w-full max-w-[1920px] mx-auto px-4 sm:px-6 lg:px-8 py-4 lg:py-6 overflow-hidden">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full">
-          
-          {/* Left Column: Input & Controls - SCROLLABLE on Desktop */}
+
+          {/* Left Column: Input & Controls */}
           <div className="lg:col-span-5 flex flex-col gap-4 lg:h-full lg:overflow-y-auto lg:pr-2 custom-scrollbar">
-            
+
             {/* YouTube Input Area */}
             <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 sm:p-5 transition-colors flex-shrink-0">
-               <YouTubeInput 
-                 url={videoUrl} 
-                 onUrlChange={handleUrlChange} 
-                 onSubmit={handleUrlSubmit}
-                 isLoading={status === ProcessingStatus.PROCESSING} 
-               />
+              <YouTubeInput
+                url={videoUrl}
+                onUrlChange={handleUrlChange}
+                onSubmit={handleUrlSubmit}
+                isLoading={status === ProcessingStatus.PROCESSING}
+              />
             </div>
 
             {/* Controls */}
@@ -285,7 +305,7 @@ const App: React.FC = () => {
                     </div>
                   )}
                 </div>
-                
+
                 <div className="space-y-4">
                   {/* Primary Action: Transcribe */}
                   <button
@@ -302,7 +322,7 @@ const App: React.FC = () => {
                           {isTranslating ? "Auto-Detect & Translate" : "Generate Transcript"}
                         </div>
                         <div className="text-xs sm:text-sm opacity-85 font-normal">
-                           {isTranslating ? `Detect source & text to ${targetLang}` : "Convert Speech to Text (Original)"}
+                          {isTranslating ? `Detect source & text to ${targetLang}` : "Convert Speech to Text (Original)"}
                         </div>
                       </div>
                     </span>
@@ -314,29 +334,29 @@ const App: React.FC = () => {
                   </button>
 
                   {/* Secondary Actions */}
-                   <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                      <button
-                        onClick={handleGenerateSummary}
-                        disabled={loadingSummary || !transcript}
-                        className="flex flex-col items-center justify-center gap-2 sm:gap-3 px-3 py-4 sm:py-6 bg-purple-50 dark:bg-purple-900/30 hover:bg-purple-100 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded-xl border border-purple-200 dark:border-purple-800 transition-all font-bold text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed h-full"
-                        title={!transcript ? "Generate Transcript first" : "Summarize video content"}
-                      >
-                        <Sparkles size={24} />
-                        Summarize
-                        {loadingSummary && <div className="w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mt-1"></div>}
-                      </button>
+                  <div className="grid grid-cols-2 gap-3 sm:gap-4">
+                    <button
+                      onClick={handleGenerateSummary}
+                      disabled={loadingSummary || !transcript}
+                      className="flex flex-col items-center justify-center gap-2 sm:gap-3 px-3 py-4 sm:py-6 bg-purple-50 dark:bg-purple-900/30 hover:bg-purple-100 dark:hover:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded-xl border border-purple-200 dark:border-purple-800 transition-all font-bold text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed h-full"
+                      title={!transcript ? "Generate Transcript first" : "Summarize video content"}
+                    >
+                      <Sparkles size={24} />
+                      Summarize
+                      {loadingSummary && <div className="w-4 h-4 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mt-1"></div>}
+                    </button>
 
-                       <button
-                        onClick={() => handleTranslate('transcript')}
-                        disabled={loadingTranslation || !transcript}
-                        className="flex flex-col items-center justify-center gap-2 sm:gap-3 px-3 py-4 sm:py-6 bg-green-50 dark:bg-green-900/30 hover:bg-green-100 dark:hover:bg-green-900/50 text-green-700 dark:text-green-300 rounded-xl border border-green-200 dark:border-green-800 transition-all font-bold text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed h-full"
-                        title={!transcript ? "Generate Transcript first" : "Re-translate the current text"}
-                      >
-                        <Languages size={24} />
-                        Translate Text
-                        {loadingTranslation && <div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin mt-1"></div>}
-                      </button>
-                   </div>
+                    <button
+                      onClick={() => handleTranslate('transcript')}
+                      disabled={loadingTranslation || !transcript}
+                      className="flex flex-col items-center justify-center gap-2 sm:gap-3 px-3 py-4 sm:py-6 bg-green-50 dark:bg-green-900/30 hover:bg-green-100 dark:hover:bg-green-900/50 text-green-700 dark:text-green-300 rounded-xl border border-green-200 dark:border-green-800 transition-all font-bold text-sm sm:text-base disabled:opacity-50 disabled:cursor-not-allowed h-full"
+                      title={!transcript ? "Generate Transcript first" : "Re-translate the current text"}
+                    >
+                      <Languages size={24} />
+                      Translate Text
+                      {loadingTranslation && <div className="w-4 h-4 border-2 border-green-500 border-t-transparent rounded-full animate-spin mt-1"></div>}
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -345,97 +365,93 @@ const App: React.FC = () => {
           {/* Right Column: Results - Fills Height */}
           <div className="lg:col-span-7 flex flex-col h-full overflow-hidden">
             {/* Tabs */}
-             {videoUrl && (
-               <div className="flex-shrink-0 mb-4 flex items-center space-x-2 bg-gray-200/50 dark:bg-gray-800 p-2 rounded-xl w-full sm:w-fit overflow-x-auto border border-gray-200 dark:border-gray-700 no-scrollbar">
-                  <button
-                    onClick={() => setActiveTab('transcript')}
-                    className={`px-4 sm:px-6 py-2 sm:py-3 rounded-lg text-sm sm:text-lg font-medium transition-all whitespace-nowrap ${
-                      activeTab === 'transcript' 
-                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' 
+            {videoUrl && (
+              <div className="flex-shrink-0 mb-4 flex items-center space-x-2 bg-gray-200/50 dark:bg-gray-800 p-2 rounded-xl w-full sm:w-fit overflow-x-auto border border-gray-200 dark:border-gray-700 no-scrollbar">
+                <button
+                  onClick={() => setActiveTab('transcript')}
+                  className={`px-4 sm:px-6 py-2 sm:py-3 rounded-lg text-sm sm:text-lg font-medium transition-all whitespace-nowrap ${activeTab === 'transcript'
+                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
                       : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/50 dark:hover:bg-gray-700/50'
                     }`}
-                  >
-                    Transcript
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('summary')}
-                    className={`px-4 sm:px-6 py-2 sm:py-3 rounded-lg text-sm sm:text-lg font-medium transition-all whitespace-nowrap ${
-                      activeTab === 'summary' 
-                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' 
+                >
+                  Transcript
+                </button>
+                <button
+                  onClick={() => setActiveTab('summary')}
+                  className={`px-4 sm:px-6 py-2 sm:py-3 rounded-lg text-sm sm:text-lg font-medium transition-all whitespace-nowrap ${activeTab === 'summary'
+                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
                       : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/50 dark:hover:bg-gray-700/50'
                     }`}
-                  >
-                    Summary
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('translation')}
-                    className={`px-4 sm:px-6 py-2 sm:py-3 rounded-lg text-sm sm:text-lg font-medium transition-all whitespace-nowrap ${
-                      activeTab === 'translation' 
-                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm' 
+                >
+                  Summary
+                </button>
+                <button
+                  onClick={() => setActiveTab('translation')}
+                  className={`px-4 sm:px-6 py-2 sm:py-3 rounded-lg text-sm sm:text-lg font-medium transition-all whitespace-nowrap ${activeTab === 'translation'
+                      ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
                       : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/50 dark:hover:bg-gray-700/50'
                     }`}
-                  >
-                    Translation
-                  </button>
-                  <button
-                    onClick={() => setActiveTab('chat')}
-                    className={`px-4 sm:px-6 py-2 sm:py-3 rounded-lg text-sm sm:text-lg font-medium transition-all whitespace-nowrap flex items-center gap-2 ${
-                      activeTab === 'chat' 
-                      ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm' 
+                >
+                  Translation
+                </button>
+                <button
+                  onClick={() => setActiveTab('chat')}
+                  className={`px-4 sm:px-6 py-2 sm:py-3 rounded-lg text-sm sm:text-lg font-medium transition-all whitespace-nowrap flex items-center gap-2 ${activeTab === 'chat'
+                      ? 'bg-white dark:bg-gray-700 text-blue-600 dark:text-blue-400 shadow-sm'
                       : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-200/50 dark:hover:bg-gray-700/50'
                     }`}
-                  >
-                    <MessageCircle size={20} />
-                    Chat
-                  </button>
-               </div>
-             )}
+                >
+                  <MessageCircle size={20} />
+                  Chat
+                </button>
+              </div>
+            )}
 
-            {/* UPDATED: Container uses flex-grow and h-0 to allow children to handle scrolling */}
+            {/* Content Area */}
             <div className="flex-grow h-0 min-h-[500px] lg:min-h-0">
-               {activeTab === 'transcript' && (
-                  <ResultCard 
-                    title={`Transcript ${isTranslating ? `(${targetLang})` : '(Original)'}`}
-                    content={transcript}
-                    isLoading={loadingTranscript}
-                    type="markdown"
-                    icon={<FileText size={24} className="text-blue-600 dark:text-blue-400"/>}
-                  />
-               )}
-               {activeTab === 'summary' && (
-                  <ResultCard 
-                    title={`Summary ${isTranslating ? `(${targetLang})` : ''}`}
-                    content={summary}
-                    isLoading={loadingSummary}
-                    type="markdown"
-                    icon={<Sparkles size={24} className="text-purple-600 dark:text-purple-400"/>}
-                  />
-               )}
-               {activeTab === 'translation' && (
-                  <ResultCard 
-                    title={`Translation (${targetLang}) - Source: ${translationSource}`}
-                    content={translation}
-                    isLoading={loadingTranslation}
-                    type="markdown"
-                    icon={<Languages size={24} className="text-green-600 dark:text-green-400"/>}
-                  />
-               )}
-               {activeTab === 'chat' && (
-                  <ChatInterface 
-                    messages={chatMessages}
-                    onSendMessage={handleSendMessage}
-                    isLoading={chatLoading}
-                  />
-               )}
+              {activeTab === 'transcript' && (
+                <ResultCard
+                  title={`Transcript ${displayedTranscriptLang !== TargetLanguage.ORIGINAL ? `(${displayedTranscriptLang})` : '(Original)'}`}
+                  content={transcript}
+                  isLoading={loadingTranscript}
+                  type="markdown"
+                  icon={<FileText size={24} className="text-blue-600 dark:text-blue-400" />}
+                />
+              )}
+              {activeTab === 'summary' && (
+                <ResultCard
+                  title={`Summary ${displayedSummaryLang !== TargetLanguage.ORIGINAL ? `(${displayedSummaryLang})` : ''}`}
+                  content={summary}
+                  isLoading={loadingSummary}
+                  type="markdown"
+                  icon={<Sparkles size={24} className="text-purple-600 dark:text-purple-400" />}
+                />
+              )}
+              {activeTab === 'translation' && (
+                <ResultCard
+                  title={`Translation (${displayedTranslationLang}) - Source: ${translationSource}`}
+                  content={translation}
+                  isLoading={loadingTranslation}
+                  type="markdown"
+                  icon={<Languages size={24} className="text-green-600 dark:text-green-400" />}
+                />
+              )}
+              {activeTab === 'chat' && (
+                <ChatInterface
+                  messages={chatMessages}
+                  onSendMessage={handleSendMessage}
+                  isLoading={chatLoading}
+                />
+              )}
 
-               {!videoUrl && (
-                 <div className="h-full flex flex-col items-center justify-center text-gray-400 dark:text-gray-500 p-8 sm:p-12 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-2xl bg-white/50 dark:bg-gray-800/50 transition-colors">
-                    <div className="w-16 h-16 sm:w-24 sm:h-24 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-6 shadow-inner">
-                       <ArrowRight size={32} className="sm:w-10 sm:h-10 text-gray-300 dark:text-gray-600" />
-                    </div>
-                    <p className="text-lg sm:text-2xl font-medium text-center">Paste a YouTube URL to get started</p>
-                 </div>
-               )}
+              {!videoUrl && (
+                <div className="h-full flex flex-col items-center justify-center text-gray-400 dark:text-gray-500 p-8 sm:p-12 border-2 border-dashed border-gray-200 dark:border-gray-700 rounded-2xl bg-white/50 dark:bg-gray-800/50 transition-colors">
+                  <div className="w-16 h-16 sm:w-24 sm:h-24 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-6 shadow-inner">
+                    <ArrowRight size={32} className="sm:w-10 sm:h-10 text-gray-300 dark:text-gray-600" />
+                  </div>
+                  <p className="text-lg sm:text-2xl font-medium text-center">Paste a YouTube URL to get started</p>
+                </div>
+              )}
             </div>
           </div>
         </div>
