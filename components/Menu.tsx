@@ -74,6 +74,49 @@ const Menu: React.FC<MenuProps> = ({ onStart, isDarkMode, toggleTheme }) => {
     // Main Container: Full Screen, No Scroll on Body
     <div className="min-h-screen lg:h-screen bg-gray-50 dark:bg-gray-950 flex flex-col transition-colors duration-500 relative overflow-x-hidden lg:overflow-hidden">
 
+      {/* Custom CSS for Animations */}
+      <style>{`
+        @keyframes gradient-shift {
+          0% { background-position: 0% 50%; }
+          50% { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+        @keyframes liquid-shimmer {
+          0% { background-position: 0% 50%; }
+          100% { background-position: 200% 50%; }
+        }
+        @keyframes glow-pulse {
+          0%, 100% { filter: drop-shadow(0 0 2px rgba(255, 255, 255, 0.6)); transform: scale(1); }
+          50% { filter: drop-shadow(0 0 10px rgba(255, 165, 0, 0.8)); transform: scale(1.05); }
+        }
+        @keyframes float {
+          0%, 100% { transform: translateY(0px); }
+          50% { transform: translateY(-10px); }
+        }
+        .animate-gradient-shift {
+          background-size: 200% 200%;
+          animation: gradient-shift 3s ease infinite;
+        }
+        .animate-liquid {
+          background-size: 200% auto;
+          animation: liquid-shimmer 3s linear infinite;
+        }
+        .animate-icon-glow {
+          animation: glow-pulse 3s ease-in-out infinite;
+        }
+        .animate-float {
+          animation: float 4s ease-in-out infinite;
+        }
+        .animate-float-delay-1 {
+          animation: float 4s ease-in-out infinite;
+          animation-delay: 1s;
+        }
+        .animate-float-delay-2 {
+          animation: float 4s ease-in-out infinite;
+          animation-delay: 2s;
+        }
+      `}</style>
+
       {/* Background Decor */}
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[1000px] h-[600px] bg-red-500/10 dark:bg-red-900/10 rounded-[100%] blur-3xl -z-10 pointer-events-none" />
 
@@ -97,12 +140,19 @@ const Menu: React.FC<MenuProps> = ({ onStart, isDarkMode, toggleTheme }) => {
           {/* Left Column: Intro & Actions (Takes 5/8 space) */}
           <div className="lg:col-span-5 flex flex-col justify-center space-y-8 animate-fade-in-up py-4 lg:py-0 overflow-y-auto custom-scrollbar h-full">
             <div className="space-y-6">
-              <div className="mx-auto lg:mx-0 w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-br from-red-600 to-orange-600 rounded-3xl shadow-2xl flex items-center justify-center text-white transform hover:scale-105 transition-transform duration-300 ring-4 ring-red-100 dark:ring-red-900/30">
-                <Video size={40} className="sm:w-12 sm:h-12" fill="currentColor" />
+
+              {/* ANIMATED LOGO */}
+              <div className="mx-auto lg:mx-0 w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-br from-red-600 via-orange-500 to-yellow-500 animate-gradient-shift rounded-3xl shadow-2xl flex items-center justify-center text-white transform hover:scale-105 transition-transform duration-300 ring-4 ring-red-100 dark:ring-red-900/30">
+                <Video size={40} className="sm:w-12 sm:h-12 animate-icon-glow" fill="currentColor" />
               </div>
+
               <div>
                 <h1 className="text-4xl sm:text-5xl lg:text-7xl font-black text-gray-900 dark:text-white tracking-tight leading-[1.1]">
-                  TubeScribe <span className="text-transparent bg-clip-text bg-gradient-to-r from-red-600 to-orange-500">AI</span>
+                  TubeScribe
+                  {/* ANIMATED "AI" TEXT */}
+                  <span className="ml-2 text-transparent bg-clip-text bg-gradient-to-r from-red-600 via-purple-500 to-pink-600 animate-liquid">
+                    AI
+                  </span>
                 </h1>
                 <p className="mt-6 text-lg sm:text-xl text-gray-600 dark:text-gray-300 max-w-lg mx-auto lg:mx-0 leading-relaxed font-light">
                   Unlimited, batch transcribe YouTube videos and playlists into accurate text in any language in just seconds.
@@ -111,16 +161,22 @@ const Menu: React.FC<MenuProps> = ({ onStart, isDarkMode, toggleTheme }) => {
               </div>
             </div>
 
+            {/* ANIMATED FEATURE ICONS (Floating) */}
             <div className="grid grid-cols-3 gap-3 sm:gap-4 max-w-lg mx-auto lg:mx-0 w-full">
-              <div className="flex flex-col items-center text-center p-3 sm:p-4 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 transition-colors">
+              {/* Icon 1: Transcribe */}
+              <div className="animate-float flex flex-col items-center text-center p-3 sm:p-4 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 transition-colors">
                 <div className="p-2 sm:p-3 bg-purple-50 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 rounded-xl mb-2"><span className="font-bold text-xl leading-none">Aa</span></div>
                 <span className="font-bold text-gray-800 dark:text-gray-200 text-xs sm:text-sm">Transcribe</span>
               </div>
-              <div className="flex flex-col items-center text-center p-3 sm:p-4 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 transition-colors">
+
+              {/* Icon 2: Translate (Delayed) */}
+              <div className="animate-float-delay-1 flex flex-col items-center text-center p-3 sm:p-4 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 transition-colors">
                 <div className="p-2 sm:p-3 bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-400 rounded-xl mb-2"><span className="font-bold text-xl leading-none">文</span></div>
                 <span className="font-bold text-gray-800 dark:text-gray-200 text-xs sm:text-sm">Translate</span>
               </div>
-              <div className="flex flex-col items-center text-center p-3 sm:p-4 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 transition-colors">
+
+              {/* Icon 3: Summarize (Delayed) */}
+              <div className="animate-float-delay-2 flex flex-col items-center text-center p-3 sm:p-4 bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 transition-colors">
                 <div className="p-2 sm:p-3 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-xl mb-2"><Sparkles size={20} className="sm:w-6 sm:h-6" /></div>
                 <span className="font-bold text-gray-800 dark:text-gray-200 text-xs sm:text-sm">Summarize</span>
               </div>
@@ -133,8 +189,6 @@ const Menu: React.FC<MenuProps> = ({ onStart, isDarkMode, toggleTheme }) => {
               Start Analyzing
               <ArrowRight size={24} className="group-hover:translate-x-1 transition-transform" />
             </button>
-
-            {/* REMOVED "Powered by Gemini" text here */}
           </div>
 
           {/* Right Column: Embedded Chat Guide (Takes 3/8 space) */}
@@ -145,7 +199,7 @@ const Menu: React.FC<MenuProps> = ({ onStart, isDarkMode, toggleTheme }) => {
                 <Bot size={20} />
               </div>
               <div>
-                <h3 className="font-bold text-gray-900 dark:text-white text-base sm:text-lg">Project Guide</h3>
+                <h3 className="font-bold text-gray-900 dark:text-white text-base sm:text-lg">TubeScribe Chatbot</h3>
                 <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 flex items-center gap-2">
                   <span className="relative flex h-2 w-2">
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
