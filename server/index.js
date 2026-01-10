@@ -1,6 +1,10 @@
+// 1. THE "NODE 20 TRICK": Force IPv4 to prevent DNS resolution errors
+const dns = require('node:dns');
+dns.setDefaultResultOrder('ipv4first');
+
 const express = require('express');
 const cors = require('cors');
-const { Innertube, UniversalCache } = require('youtubei.js');
+const { YouTubeTranscript } = require('youtube-transcript'); // Lighter, more reliable
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
 
@@ -12,16 +16,15 @@ const PORT = 7860;
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 app.get('/', (req, res) => {
-    res.send('TubeScribe Backend Running (v8: Innertube API)');
+    res.send('TubeScribe Backend Running (v9: Node 20 + YouTubeTranscript)');
 });
 
-// Helper: Extract Video ID from any URL
+// Helper: Extract Video ID
 const getVideoId = (url) => {
     try {
         if (url.includes('youtu.be')) return url.split('/').pop().split('?')[0];
         const urlObj = new URL(url);
-        if (urlObj.hostname.includes('notegpt.io')) return urlObj.pathname.split('/').pop();
-        return urlObj.searchParams.get('v');
+        return urlObj.searchParams.get('v') || urlObj.pathname.split('/').pop();
     } catch (e) { return null; }
 };
 
@@ -29,37 +32,33 @@ app.post('/api/transcribe', async (req, res) => {
     const { videoUrl, targetLanguage } = req.body;
     const videoId = getVideoId(videoUrl);
 
+    if (!videoId) {
+        return res.status(400).json({ error: "Invalid YouTube URL" });
+    }
+
     console.log(`Processing ID: ${videoId}`);
 
     try {
-        // 1. Initialize YouTube Client (Mimic Android App)
-        const youtube = await Innertube.create({ cache: new UniversalCache(false), generate_session_locally: true });
+        // 2. FETCH TRANSCRIPT
+        // This library fetches the web-accessible XML captions
+        const transcriptData = await YouTubeTranscript.fetchTranscript(videoId);
 
-        // 2. Fetch Video Info
-        const info = await youtube.getInfo(videoId);
-
-        // 3. Get Transcript Data
-        const transcriptData = await info.getTranscript();
-
-        if (!transcriptData || !transcriptData.transcript) {
+        if (!transcriptData || transcriptData.length === 0) {
             throw new Error("No transcript found for this video.");
         }
 
-        // 4. Format Transcript
-        // The API returns segments. We map them to "[MM:SS] Text"
-        let fullTranscript = transcriptData.transcript.content.body.initial_segments.map(segment => {
-            const startMs = parseInt(segment.start_ms);
-            const totalSeconds = Math.floor(startMs / 1000);
+        // 3. FORMAT TRANSCRIPT with [MM:SS]
+        let fullTranscript = transcriptData.map(segment => {
+            const totalSeconds = Math.floor(segment.offset / 1000);
             const mm = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
             const ss = (totalSeconds % 60).toString().padStart(2, '0');
-            const text = segment.snippet.text;
-            return `[${mm}:${ss}] ${text}`;
+            return `[${mm}:${ss}] ${segment.text}`;
         }).join('\n');
 
         console.log(`✅ Transcript fetched (${fullTranscript.length} chars)`);
 
-        // 5. Translate if needed (Gemini)
-        if (targetLanguage !== 'Original') {
+        // 4. TRANSLATE (Gemini)
+        if (targetLanguage && targetLanguage !== 'Original') {
             console.log(`Translating to ${targetLanguage}...`);
             const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
             const result = await model.generateContent(`
@@ -78,12 +77,11 @@ app.post('/api/transcribe', async (req, res) => {
     } catch (error) {
         console.error("❌ Transcription Error:", error);
 
-        // Handle specific "No Caption" errors
-        if (error.message.includes("No transcript")) {
-            return res.status(404).json({ error: "This video does not have captions/transcript available." });
+        if (error.message.includes("transcript is disabled") || error.message.includes("No transcript")) {
+            return res.status(404).json({ error: "Captions are disabled or unavailable for this video." });
         }
 
-        res.status(500).json({ error: `Failed to process: ${error.message}` });
+        res.status(500).json({ error: `Server error: ${error.message}` });
     }
 });
 
