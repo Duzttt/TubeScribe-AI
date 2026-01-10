@@ -30,7 +30,7 @@ const formatTimestamp = (offsetMs) => {
 };
 
 app.get('/', (req, res) => {
-    res.send('TubeScribe Backend is Running (v3: Anti-Bot Headers)');
+    res.send('TubeScribe Backend Running (v7: Mobile Agent + Direct URL)');
 });
 
 app.post('/api/transcribe', async (req, res) => {
@@ -38,7 +38,6 @@ app.post('/api/transcribe', async (req, res) => {
     const timestamp = Date.now();
     const filename = `audio_${timestamp}.mp3`;
     const filePath = path.join(tempDir, filename);
-    const cookiesPath = path.join(__dirname, 'cookies.txt'); // Check for cookies file
 
     console.log(`[${timestamp}] Processing: ${videoUrl}`);
 
@@ -47,6 +46,8 @@ app.post('/api/transcribe', async (req, res) => {
     // =======================================================
     try {
         console.log("Strategy 1: Attempting to fetch existing captions...");
+
+        // We use your exact URL. youtube-transcript handles most formats well.
         const captionItems = await YoutubeTranscript.fetchTranscript(videoUrl);
 
         console.log(`✅ Success! Found ${captionItems.length} lines.`);
@@ -60,42 +61,37 @@ app.post('/api/transcribe', async (req, res) => {
         return res.json({ transcript: fullTranscript });
 
     } catch (error) {
-        console.warn(`⚠️ Caption extraction failed (${error.message}). Falling back...`);
+        console.warn(`⚠️ Strategy 1 Failed: ${error.message}`);
+        console.log("Falling back to Strategy 2 (Audio Download)...");
     }
 
     // =======================================================
-    // STRATEGY 2: AUDIO DOWNLOAD (With Anti-Bot Measures)
+    // STRATEGY 2: AUDIO DOWNLOAD (Android Emulation)
     // =======================================================
     try {
-        console.log("Strategy 2: Downloading audio with yt-dlp...");
+        console.log("Strategy 2: Downloading audio via yt-dlp...");
 
-        const ytdlFlags = {
+        await youtubedl(videoUrl, {
             extractAudio: true,
             audioFormat: 'mp3',
             output: filePath,
+            // SECURITY BYPASS FLAGS
             noCheckCertificates: true,
             noWarnings: true,
             preferFreeFormats: true,
-            // --- FIX FOR "No Address" ERROR ---
-            forceIpv4: true,
-            // ----------------------------------
-            userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            referer: 'https://www.youtube.com/',
-        };
+            forceIpv4: true, // Fixes [Errno -5]
 
-        // If you uploaded a cookies.txt file, use it (Nuclear Option)
-        if (fs.existsSync(cookiesPath)) {
-            console.log("wb Using cookies.txt for authentication");
-            ytdlFlags.cookies = cookiesPath;
-        }
-
-        await youtubedl(videoUrl, ytdlFlags);
+            // KEY FIX: Use Android Mobile User Agent
+            // YouTube rarely blocks "Mobile" traffic from data centers compared to "Desktop"
+            userAgent: 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36',
+            addHeader: ['referer:m.youtube.com']
+        });
 
         if (!fs.existsSync(filePath)) throw new Error("File not found.");
         const stats = fs.statSync(filePath);
-        console.log(`Downloaded size: ${stats.size} bytes`);
 
-        if (stats.size < 10000) throw new Error("File too small (likely blocked).");
+        // If file is too small, it failed
+        if (stats.size < 10000) throw new Error("YouTube blocked the download (IP Reputation).");
 
         console.log("Uploading to Gemini...");
         const uploadResult = await fileManager.uploadFile(filePath, { mimeType: "audio/mp3", displayName: `Audio_${timestamp}` });
@@ -109,7 +105,7 @@ app.post('/api/transcribe', async (req, res) => {
         if (file.state === "FAILED") throw new Error("Gemini processing failed.");
 
         const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-        const prompt = `Transcribe this audio exactly. Format: "[MM:SS] Speaker: Text". ${targetLanguage !== 'Original' ? `Translate to ${targetLanguage}.` : ''}`;
+        const prompt = `Transcribe exactly. Format: "[MM:SS] Speaker: Text". ${targetLanguage !== 'Original' ? `Translate to ${targetLanguage}.` : ''}`;
 
         const result = await model.generateContent([{ fileData: { mimeType: uploadResult.file.mimeType, fileUri: uploadResult.file.uri } }, { text: prompt }]);
 
@@ -119,8 +115,9 @@ app.post('/api/transcribe', async (req, res) => {
     } catch (error) {
         console.error("❌ Strategy 2 Failed:", error);
         if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        // Pass the actual error message back to frontend for better debugging
-        res.status(500).json({ error: `Transcription failed. YouTube blocked the download. Details: ${error.message}` });
+        res.status(500).json({
+            error: "Could not transcribe. YouTube blocked the connection from this server."
+        });
     }
 });
 
