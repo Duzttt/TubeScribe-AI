@@ -1,11 +1,7 @@
 const express = require('express');
 const cors = require('cors');
-const fs = require('fs');
-const path = require('path');
-const youtubedl = require('youtube-dl-exec');
-const { YoutubeTranscript } = require('youtube-transcript');
+const { Innertube, UniversalCache } = require('youtubei.js');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const { GoogleAIFileManager } = require('@google/generative-ai/server');
 require('dotenv').config();
 
 const app = express();
@@ -13,111 +9,81 @@ app.use(cors());
 app.use(express.json());
 
 const PORT = 7860;
-
-const fileManager = new GoogleAIFileManager(process.env.GEMINI_API_KEY);
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-const tempDir = path.join(__dirname, 'temp');
-if (!fs.existsSync(tempDir)) {
-    fs.mkdirSync(tempDir);
-}
-
-const formatTimestamp = (offsetMs) => {
-    const totalSeconds = Math.floor(offsetMs / 1000);
-    const mm = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
-    const ss = (totalSeconds % 60).toString().padStart(2, '0');
-    return `[${mm}:${ss}]`;
-};
-
 app.get('/', (req, res) => {
-    res.send('TubeScribe Backend Running (v7: Mobile Agent + Direct URL)');
+    res.send('TubeScribe Backend Running (v8: Innertube API)');
 });
+
+// Helper: Extract Video ID from any URL
+const getVideoId = (url) => {
+    try {
+        if (url.includes('youtu.be')) return url.split('/').pop().split('?')[0];
+        const urlObj = new URL(url);
+        if (urlObj.hostname.includes('notegpt.io')) return urlObj.pathname.split('/').pop();
+        return urlObj.searchParams.get('v');
+    } catch (e) { return null; }
+};
 
 app.post('/api/transcribe', async (req, res) => {
     const { videoUrl, targetLanguage } = req.body;
-    const timestamp = Date.now();
-    const filename = `audio_${timestamp}.mp3`;
-    const filePath = path.join(tempDir, filename);
+    const videoId = getVideoId(videoUrl);
 
-    console.log(`[${timestamp}] Processing: ${videoUrl}`);
+    console.log(`Processing ID: ${videoId}`);
 
-    // =======================================================
-    // STRATEGY 1: INSTANT CAPTION EXTRACTION
-    // =======================================================
     try {
-        console.log("Strategy 1: Attempting to fetch existing captions...");
+        // 1. Initialize YouTube Client (Mimic Android App)
+        const youtube = await Innertube.create({ cache: new UniversalCache(false), generate_session_locally: true });
 
-        // We use your exact URL. youtube-transcript handles most formats well.
-        const captionItems = await YoutubeTranscript.fetchTranscript(videoUrl);
+        // 2. Fetch Video Info
+        const info = await youtube.getInfo(videoId);
 
-        console.log(`✅ Success! Found ${captionItems.length} lines.`);
-        let fullTranscript = captionItems.map(item => `${formatTimestamp(item.offset)} ${item.text}`).join('\n');
+        // 3. Get Transcript Data
+        const transcriptData = await info.getTranscript();
 
+        if (!transcriptData || !transcriptData.transcript) {
+            throw new Error("No transcript found for this video.");
+        }
+
+        // 4. Format Transcript
+        // The API returns segments. We map them to "[MM:SS] Text"
+        let fullTranscript = transcriptData.transcript.content.body.initial_segments.map(segment => {
+            const startMs = parseInt(segment.start_ms);
+            const totalSeconds = Math.floor(startMs / 1000);
+            const mm = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
+            const ss = (totalSeconds % 60).toString().padStart(2, '0');
+            const text = segment.snippet.text;
+            return `[${mm}:${ss}] ${text}`;
+        }).join('\n');
+
+        console.log(`✅ Transcript fetched (${fullTranscript.length} chars)`);
+
+        // 5. Translate if needed (Gemini)
         if (targetLanguage !== 'Original') {
+            console.log(`Translating to ${targetLanguage}...`);
             const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-            const result = await model.generateContent(`Translate to ${targetLanguage}. Keep [MM:SS].\n\n${fullTranscript.substring(0, 30000)}`);
+            const result = await model.generateContent(`
+                Translate the following transcript to ${targetLanguage}.
+                IMPORTANT: Keep the [MM:SS] timestamps at the start of lines.
+                Do not summarize. Return only the translated transcript.
+                
+                TRANSCRIPT START:
+                ${fullTranscript.substring(0, 30000)}
+            `);
             fullTranscript = result.response.text();
         }
-        return res.json({ transcript: fullTranscript });
+
+        res.json({ transcript: fullTranscript });
 
     } catch (error) {
-        console.warn(`⚠️ Strategy 1 Failed: ${error.message}`);
-        console.log("Falling back to Strategy 2 (Audio Download)...");
-    }
+        console.error("❌ Transcription Error:", error);
 
-    // =======================================================
-    // STRATEGY 2: AUDIO DOWNLOAD (Android Emulation)
-    // =======================================================
-    try {
-        console.log("Strategy 2: Downloading audio via yt-dlp...");
-
-        await youtubedl(videoUrl, {
-            extractAudio: true,
-            audioFormat: 'mp3',
-            output: filePath,
-            // SECURITY BYPASS FLAGS
-            noCheckCertificates: true,
-            noWarnings: true,
-            preferFreeFormats: true,
-            forceIpv4: true, // Fixes [Errno -5]
-
-            // KEY FIX: Use Android Mobile User Agent
-            // YouTube rarely blocks "Mobile" traffic from data centers compared to "Desktop"
-            userAgent: 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Mobile Safari/537.36',
-            addHeader: ['referer:m.youtube.com']
-        });
-
-        if (!fs.existsSync(filePath)) throw new Error("File not found.");
-        const stats = fs.statSync(filePath);
-
-        // If file is too small, it failed
-        if (stats.size < 10000) throw new Error("YouTube blocked the download (IP Reputation).");
-
-        console.log("Uploading to Gemini...");
-        const uploadResult = await fileManager.uploadFile(filePath, { mimeType: "audio/mp3", displayName: `Audio_${timestamp}` });
-
-        let file = await fileManager.getFile(uploadResult.file.name);
-        while (file.state === "PROCESSING") {
-            await new Promise(r => setTimeout(r, 2000));
-            file = await fileManager.getFile(uploadResult.file.name);
+        // Handle specific "No Caption" errors
+        if (error.message.includes("No transcript")) {
+            return res.status(404).json({ error: "This video does not have captions/transcript available." });
         }
 
-        if (file.state === "FAILED") throw new Error("Gemini processing failed.");
-
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-        const prompt = `Transcribe exactly. Format: "[MM:SS] Speaker: Text". ${targetLanguage !== 'Original' ? `Translate to ${targetLanguage}.` : ''}`;
-
-        const result = await model.generateContent([{ fileData: { mimeType: uploadResult.file.mimeType, fileUri: uploadResult.file.uri } }, { text: prompt }]);
-
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        res.json({ transcript: result.response.text() });
-
-    } catch (error) {
-        console.error("❌ Strategy 2 Failed:", error);
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-        res.status(500).json({
-            error: "Could not transcribe. YouTube blocked the connection from this server."
-        });
+        res.status(500).json({ error: `Failed to process: ${error.message}` });
     }
 });
 

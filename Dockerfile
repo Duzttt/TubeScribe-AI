@@ -4,12 +4,6 @@ FROM node:18
 # Create app directory
 WORKDIR /app
 
-# --- CRITICAL: Install Python & FFmpeg for yt-dlp ---
-RUN apt-get update && \
-    apt-get install -y python3 python3-pip ffmpeg && \
-    apt-get clean
-# ----------------------------------------------------
-
 # Copy package files
 COPY package.json ./
 
@@ -19,13 +13,13 @@ RUN npm install
 # Copy the rest of your app source code
 COPY . .
 
-# Create the temp directory and give permissions to 'node' user
+# Create temp dir
 RUN mkdir -p temp && chown -R node:node /app
 
-# Switch to non-root user for security
+# Switch to non-root user
 USER node
 
-# Expose port 7860 (Hugging Face default)
+# Expose port 7860
 EXPOSE 7860
 
 # Start the server
