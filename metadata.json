@@ -1,0 +1,5 @@
+{
+  "name": "TubeScribe AI",
+  "description": "An intelligent video assistant that generates transcripts, summaries, and translations from uploaded video/audio files using Gemini 2.0 Flash.",
+  "requestFramePermissions": []
+}
