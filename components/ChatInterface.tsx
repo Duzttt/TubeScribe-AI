@@ -30,19 +30,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, onSendMessage, 
   };
 
   return (
-    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col h-[800px] animate-fade-in-up transition-colors">
+    // UPDATED: Changed h-[800px] to h-full
+    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col h-full animate-fade-in-up transition-colors">
       {/* Header */}
-      <div className="px-6 py-5 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/30 flex items-center gap-3">
+      <div className="px-4 py-3 sm:px-6 sm:py-5 border-b border-gray-100 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-900/30 flex items-center gap-3">
         <Bot size={24} className="text-green-600 dark:text-green-400" />
-        <h3 className="font-bold text-xl text-gray-800 dark:text-gray-200">AI Chat Assistant</h3>
+        <h3 className="font-bold text-lg sm:text-xl text-gray-800 dark:text-gray-200">AI Chat Assistant</h3>
       </div>
 
       {/* Messages Area */}
-      <div className="flex-grow overflow-y-auto p-6 space-y-6 bg-white dark:bg-gray-800 transition-colors">
+      <div className="flex-grow overflow-y-auto p-4 sm:p-6 space-y-4 sm:space-y-6 bg-white dark:bg-gray-800 transition-colors">
         {messages.length === 0 ? (
            <div className="h-full flex flex-col items-center justify-center text-gray-400 dark:text-gray-500 space-y-4 opacity-60">
-             <Bot size={64} />
-             <p className="text-xl font-medium">Ask anything about the video!</p>
+             <Bot size={48} className="sm:w-16 sm:h-16" />
+             <p className="text-lg sm:text-xl font-medium text-center">Ask anything about the video!</p>
            </div>
         ) : (
           messages.map((msg) => (
@@ -51,15 +52,14 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, onSendMessage, 
               className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
               <div
-                className={`max-w-[85%] rounded-2xl px-6 py-4 text-lg leading-relaxed shadow-sm ${
+                className={`max-w-[90%] sm:max-w-[85%] rounded-2xl px-4 py-3 sm:px-6 sm:py-4 text-base sm:text-lg leading-relaxed shadow-sm ${
                   msg.role === 'user'
                     ? 'bg-blue-600 text-white rounded-br-sm'
                     : 'bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100 rounded-bl-sm'
                 }`}
               >
-                 {/* INCREASED PROSE SIZE HERE */}
                  <ReactMarkdown 
-                    className={`prose prose-lg max-w-none ${msg.role === 'user' ? 'prose-invert' : 'dark:prose-invert'}`}
+                    className={`prose prose-base sm:prose-lg max-w-none ${msg.role === 'user' ? 'prose-invert' : 'dark:prose-invert'}`}
                     remarkPlugins={[remarkGfm]}
                  >
                   {msg.text}
@@ -70,9 +70,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, onSendMessage, 
         )}
         {isLoading && (
             <div className="flex justify-start">
-              <div className="bg-gray-100 dark:bg-gray-700 rounded-2xl rounded-bl-sm px-6 py-4 flex items-center gap-3 shadow-sm">
+              <div className="bg-gray-100 dark:bg-gray-700 rounded-2xl rounded-bl-sm px-4 py-3 sm:px-6 sm:py-4 flex items-center gap-3 shadow-sm">
                  <Loader2 size={20} className="animate-spin text-gray-500 dark:text-gray-400" />
-                 <span className="text-base text-gray-500 dark:text-gray-300">Thinking...</span>
+                 <span className="text-sm sm:text-base text-gray-500 dark:text-gray-300">Thinking...</span>
               </div>
             </div>
         )}
@@ -80,20 +80,20 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ messages, onSendMessage, 
       </div>
 
       {/* Input Area */}
-      <form onSubmit={handleSubmit} className="p-5 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
+      <form onSubmit={handleSubmit} className="p-3 sm:p-5 border-t border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50">
         <div className="relative flex items-center">
           <input
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
             placeholder="Ask a question..."
-            className="w-full pl-6 pr-14 py-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm text-lg text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
+            className="w-full pl-4 sm:pl-6 pr-12 sm:pr-14 py-3 sm:py-4 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition-all shadow-sm text-base sm:text-lg text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-gray-500"
             disabled={isLoading}
           />
           <button
             type="submit"
             disabled={!input.trim() || isLoading}
-            className="absolute right-3 p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            className="absolute right-2 sm:right-3 p-2 sm:p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           >
             <Send size={20} />
           </button>
