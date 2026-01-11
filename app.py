@@ -70,15 +70,23 @@ SUMMARIZATION_MODEL = os.getenv("SUMMARIZATION_MODEL", "facebook/bart-large-cnn"
 
 logger.info(f"Loading summarization model (English-only): {SUMMARIZATION_MODEL}...")
 try:
-    summarizer = pipeline("summarization", model=SUMMARIZATION_MODEL)
-    logger.info(f"✅ Summarization model '{SUMMARIZATION_MODEL}' loaded successfully")
+    summarizer = pipeline(
+        "summarization", 
+        model=SUMMARIZATION_MODEL,
+        device=0 if device == "cuda" else -1  # Use GPU if available
+    )
+    logger.info(f"✅ Summarization model '{SUMMARIZATION_MODEL}' loaded successfully on {device.upper()}")
 except Exception as e:
     logger.error(f"Failed to load summarization model '{SUMMARIZATION_MODEL}': {e}")
     logger.error("Falling back to BART-Large-CNN...")
     try:
         # Fallback to BART (English-only)
-        summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
-        logger.info("✅ Fallback summarization model (BART-Large-CNN) loaded successfully")
+        summarizer = pipeline(
+            "summarization", 
+            model="facebook/bart-large-cnn",
+            device=0 if device == "cuda" else -1  # Use GPU if available
+        )
+        logger.info(f"✅ Fallback summarization model (BART-Large-CNN) loaded successfully on {device.upper()}")
     except Exception as fallback_error:
         logger.error(f"Failed to load fallback summarization model: {fallback_error}")
         summarizer = None

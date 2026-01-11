@@ -367,14 +367,22 @@ class SummaryService:
         """
         Lazy load the translation model and tokenizer.
         Uses mBART-50 for multilingual translation.
+        Automatically uses GPU if available.
         """
         if self._translator_model is None:
             try:
-                logger.info("Loading translation model (mBART-50)...")
+                # Detect device (GPU if available, else CPU)
+                device = "cuda" if torch.cuda.is_available() else "cpu"
+                logger.info(f"Loading translation model (mBART-50) on {device.upper()}...")
                 model_name = "facebook/mbart-large-50-many-to-many-mmt"
                 self._translator_tokenizer = MBart50TokenizerFast.from_pretrained(model_name)
                 self._translator_model = MBartForConditionalGeneration.from_pretrained(model_name)
-                logger.info("✅ Translation model loaded successfully")
+                # Move model to GPU if available
+                if device == "cuda":
+                    self._translator_model = self._translator_model.to(device)
+                    logger.info(f"✅ Translation model loaded successfully on GPU")
+                else:
+                    logger.info(f"✅ Translation model loaded successfully on CPU")
             except Exception as e:
                 logger.error(f"Failed to load translation model: {e}")
                 return None, None
@@ -409,11 +417,15 @@ class SummaryService:
             return text
         
         try:
+            # Detect device
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+            
             # Set source language for tokenizer
             tokenizer.src_lang = src_mbart
             
-            # Tokenize input
+            # Tokenize input and move to device
             encoded = tokenizer(text, return_tensors="pt", max_length=1024, truncation=True)
+            encoded = {k: v.to(device) for k, v in encoded.items()}
             
             # Generate translation with forced target language
             generated_tokens = model.generate(
