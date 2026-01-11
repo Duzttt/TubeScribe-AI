@@ -35,47 +35,38 @@ This project consists of two main components:
 
 ## Quick Start
 
-### 1. Frontend Setup
+Get TubeScribe AI up and running in minutes! Follow these steps:
+
+### Step 1: Clone the Repository
 
 ```bash
-# Install dependencies
-npm install
-
-# Set your Gemini API key
-# Create .env.local file with:
-# VITE_API_KEY=your_gemini_api_key_here
-
-# Run development server
-npm run dev
+git clone https://github.com/Duzttt/TubeScribe-AI.git
+cd tubescribe-ai
 ```
 
-The frontend will be available at `http://localhost:5173`
+### Step 2: Set Up Python Backend (Required)
 
-### 2. Python Backend Setup (Required - for transcription, summarization, and keywords)
+The Python backend handles transcription, summarization, and keyword extraction using local AI models (no API keys needed for these features).
 
-The Python backend provides:
-- **Video Transcription**: Uses Whisper AI model locally (no API keys needed!)
-- **Multilingual Summarization**: Uses mBART model (50+ languages)
-- **Automatic Keyword Extraction**: Extracts key topics from transcripts
-- **Fast Processing**: Efficient local AI processing
+**Check Prerequisites:**
+- ✅ Python 3.10+ installed (`python --version`)
+- ✅ FFmpeg installed (`ffmpeg -version`)
+  - Windows: Download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to PATH
+  - macOS: `brew install ffmpeg`
+  - Linux: `sudo apt install ffmpeg` or `sudo yum install ffmpeg`
 
-**Note**: Requires FFmpeg to be installed (see [PYTHON_BACKEND_README.md](PYTHON_BACKEND_README.md) for installation)
+**Choose Your Setup Method:**
 
-**Troubleshooting Installation Issues:**
-If you encounter permission errors on Windows, run:
-```powershell
-.\scripts\fix-permissions.ps1
-```
+<details>
+<summary><b>🚀 Option A: Automated Scripts (Recommended - Easiest)</b></summary>
 
-**Option A: Using Scripts (Recommended)**
-
-**Windows (PowerShell - Recommended):**
+**Windows (PowerShell):**
 ```powershell
 .\scripts\start-python-backend.ps1
 ```
 
-**Windows (Command Prompt):**
-```bash
+**Windows (CMD):**
+```cmd
 scripts\start-python-backend.bat
 ```
 
@@ -85,26 +76,109 @@ chmod +x scripts/start-python-backend.sh
 ./scripts/start-python-backend.sh
 ```
 
-**Option B: Manual Setup**
+**Note:** If you encounter permission errors on Windows:
+```powershell
+.\scripts\fix-permissions.ps1
+```
+
+</details>
+
+<details>
+<summary><b>🔧 Option B: Manual Setup</b></summary>
 
 ```bash
-# Install Python dependencies
+# Create virtual environment (recommended)
+python -m venv venv
+
+# Activate virtual environment
+# Windows:
+venv\Scripts\activate
+# Linux/Mac:
+source venv/bin/activate
+
+# Install dependencies
 pip install -r requirements.txt
 
 # Start the server
 uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-**Option C: Using Docker**
+</details>
+
+<details>
+<summary><b>🐳 Option C: Docker</b></summary>
 
 ```bash
+# Build the image
 docker build -f Dockerfile.python -t tubescribe-python-backend .
+
+# Run the container
 docker run -p 8000:8000 --memory="4g" tubescribe-python-backend
 ```
 
-The Python backend will be available at `http://localhost:8000`
+</details>
 
-📚 **For detailed Python backend documentation, see [PYTHON_BACKEND_README.md](PYTHON_BACKEND_README.md)**
+**Verify Backend is Running:**
+- Open `http://localhost:8000` in your browser
+- You should see a JSON response with service info and model status
+- Check `http://localhost:8000/health` - should return `{"status": "healthy"}`
+
+**⏰ First Run:** The backend will automatically download AI models (~2-3GB) on first startup. This may take several minutes.
+
+### Step 3: Set Up Frontend
+
+**Install Dependencies:**
+```bash
+npm install
+```
+
+**Configure Environment Variables:**
+
+Create a `.env.local` file in the root directory:
+
+```env
+VITE_API_KEY=your_gemini_api_key_here
+```
+
+> **Note:** The Gemini API key is optional. You need it only for:
+> - Translation features
+> - Interactive chat
+> 
+> **Transcription and summarization work without it** (uses local Python backend).
+
+**Get a Gemini API Key (Optional):**
+1. Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
+2. Create a new API key
+3. Add it to `.env.local`
+
+**Start Development Server:**
+```bash
+npm run dev
+```
+
+The frontend will be available at `http://localhost:5173`
+
+### Step 4: Verify Everything Works
+
+1. **Backend Check:**
+   - Visit `http://localhost:8000` - should show service info
+   - Visit `http://localhost:8000/health` - should return `{"status": "healthy"}`
+
+2. **Frontend Check:**
+   - Open `http://localhost:5173` in your browser
+   - You should see the TubeScribe AI interface
+
+3. **Test Transcription:**
+   - Paste a YouTube URL in the input field
+   - Click "Transcribe"
+   - Wait for the transcript to appear (first run may take longer as models load)
+
+### What's Next?
+
+- 📚 **Detailed Setup:** See [PYTHON_BACKEND_README.md](PYTHON_BACKEND_README.md) for advanced configuration
+- 🚀 **GPU Setup:** See [GPU_SETUP.md](GPU_SETUP.md) to enable GPU acceleration
+- 🔧 **Model Options:** See [MODEL_OPTIONS.md](MODEL_OPTIONS.md) for alternative AI models
+- ❓ **Troubleshooting:** Check the [Troubleshooting](#troubleshooting) section below
 
 ## Environment Variables
 
