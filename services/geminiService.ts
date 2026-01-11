@@ -1,5 +1,5 @@
 import { GoogleGenAI } from "@google/genai";
-import { TargetLanguage, ChatMessage } from '../types';
+import { ChatMessage, TargetLanguage } from '../types';
 
 const getAiClient = () => {
   const apiKey = process.env.API_KEY;
@@ -12,153 +12,110 @@ const getAiClient = () => {
 // Using gemini-3-flash-preview for text tasks as per guidelines
 const TEXT_MODEL = "gemini-3-flash-preview";
 
-const BACKEND_URL = "https://kaiwen03-tubescribe-backend.hf.space";
+// Backend URL configuration
+// Python backend for transcription (using local Whisper model)
+const PYTHON_BACKEND_URL = process.env.VITE_PYTHON_BACKEND_URL || "http://localhost:8000";
+
 /**
- * Generates a transcript from a YouTube URL.
- * HYBRID STRATEGY:
- * 1. Tries to find existing captions via Google Search (Fast).
- * 2. If no captions found, falls back to Backend Audio Download (Slow but guaranteed).
+ * Helper function to add timeout to a promise
+ */
+const withTimeout = <T>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`Operation timed out after ${timeoutMs}ms`)), timeoutMs)
+    )
+  ]);
+};
+
+/**
+ * Generates a transcript from a YouTube URL using local Whisper model.
+ * Uses Python backend with Whisper model for transcription (no API keys needed).
  */
 export const generateTranscript = async (
   videoUrl: string,
   targetLanguage: TargetLanguage = TargetLanguage.ORIGINAL
 ): Promise<string> => {
+  console.log("🚀 [TRANSCRIPT] Starting transcription process...");
+  console.log("📹 [TRANSCRIPT] Video URL:", videoUrl);
+  console.log("🌍 [TRANSCRIPT] Target Language:", targetLanguage);
 
-  const ai = getAiClient();
+  // Check if Python backend is available
+  console.log("🔍 [TRANSCRIPT] Checking Python backend health...");
+  const healthCheck = await fetch(`${PYTHON_BACKEND_URL}/health`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  }).catch(() => null);
 
-  const isOriginal = targetLanguage === TargetLanguage.ORIGINAL;
-
-  // --- STEP 1: Try Frontend Search (Captions) ---
-  try {
-    console.log("Strategy 1: Attempting to find captions via Google Search...");
-
-    const searchPrompt = `
-      Video URL: ${videoUrl}
-   
-      You are an expert Video Transcriber and Translator.
-    
-      TASK:
-      Generate a text transcript of the spoken content in this video.
-    
-      INSTRUCTIONS:
-      1. **SEARCH**: Use 'googleSearch' to find the official captions or transcript for this video.
-      2. **SPEECH TO TEXT & AUDIO ONLY**: Listen STRICTLY to the spoken audio track.
-      3. **FORMAT**:
-        - **INCLUDE TIMESTAMPS** (e.g., [00:30], [01:45]) for every new speaker or significant segment. This is crucial for navigation.
-        - Format as: "**[Timestamp] Speaker:** Text" (Use double newlines between speakers for clarity).
-      4. **IGNORE METADATA**: Do NOT include text from the YouTube video description, video title, or tags.  
-      5. **LANGUAGE & TRANSLATION**:
-        ${isOriginal
-        ? `- Output the transcript in the **ORIGINAL SPOKEN LANGUAGE**. Do not translate it.`
-        : `- **TRANSLATE** the entire transcript into **${targetLanguage}**.`
-      }
-
-      CONSTRAINTS:
-      - If the video is music, transcribe the lyrics.
-    `;
-
-
-    const searchResponse = await ai.models.generateContent({
-      model: TEXT_MODEL,
-      contents: searchPrompt,
-      config: {
-        tools: [{ googleSearch: {} }],
-        temperature: 0.1, // Low temp to prevent hallucination
-      }
-    });
-
-    const text = searchResponse.text;
-
-    // If we got a valid transcript (not the error code, and reasonable length)
-    if (text && !text.includes("NO_TRANSCRIPT_FOUND") && text.length > 100) {
-      console.log("✅ Captions found via Search.");
-      return text;
-    }
-
-    console.warn("⚠️ No captions found via Search. Falling back to Backend...");
-
-  } catch (error) {
-    console.warn("⚠️ Frontend Search failed or error occurred. Falling back to Backend...", error);
+  if (!healthCheck || !healthCheck.ok) {
+    console.error("❌ [TRANSCRIPT] Python backend health check failed");
+    throw new Error(`Python backend is not available at ${PYTHON_BACKEND_URL}. Please make sure the Python backend is running.`);
   }
 
-  // --- STEP 2: Backend Fallback (Audio Processing) ---
+  const healthData = await healthCheck.json();
+  if (!healthData.models_ready?.transcriber) {
+    console.error("❌ [TRANSCRIPT] Transcription model not loaded in backend");
+    throw new Error('Python backend transcription model is not loaded. Please check the backend logs.');
+  }
+
+  console.log("✅ [TRANSCRIPT] Python backend is healthy and ready");
+  console.log("📤 [TRANSCRIPT] Sending transcription request to backend...");
+
+  // Use Python backend for transcription
+  const controller = new AbortController();
+  // Longer timeout for transcription (5 minutes for long videos)
+  const timeoutId = setTimeout(() => controller.abort(), 300000);
+
   try {
-    console.log("Strategy 2: Calling Backend to download and transcribe audio...");
-
-    if (BACKEND_URL.includes("YOUR-SPACE-NAME")) {
-      throw new Error("Backend URL not configured in geminiService.ts");
-    }
-
-    const response = await fetch(BACKEND_URL, {
+    const startTime = Date.now();
+    const response = await fetch(`${PYTHON_BACKEND_URL}/api/transcribe`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ videoUrl, targetLanguage }),
+      body: JSON.stringify({ 
+        videoUrl,
+        targetLanguage: targetLanguage === TargetLanguage.ORIGINAL ? null : targetLanguage
+      }),
+      signal: controller.signal,
     });
 
+    clearTimeout(timeoutId);
+    const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(1);
+
     if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.error || 'Backend transcription failed');
+      const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+      console.error("❌ [TRANSCRIPT] Backend returned error:", errorData);
+      throw new Error(errorData.detail || `Python backend error (${response.status})`);
     }
 
     const data = await response.json();
-    console.log("✅ Audio successfully transcribed by Backend.");
+    console.log(`✅ [TRANSCRIPT] Transcript received! (${elapsedTime}s)`);
+    console.log(`📝 [TRANSCRIPT] Transcript length: ${data.transcript.length} characters`);
+    
+    // If translation is needed and not original, translate using Gemini
+    if (targetLanguage !== TargetLanguage.ORIGINAL && data.transcript) {
+      console.log(`🌍 [TRANSCRIPT] Translation needed to: ${targetLanguage}`);
+      console.log("🔄 [TRANSCRIPT] Starting translation...");
+      const translated = await translateContent(data.transcript, targetLanguage);
+      console.log("✅ [TRANSCRIPT] Translation completed");
+      return translated;
+    }
+    
+    console.log("✅ [TRANSCRIPT] Process completed successfully");
     return data.transcript;
-
-  } catch (backendError) {
-    console.error("❌ Both strategies failed:", backendError);
-    throw new Error("Failed to generate transcript. Video has no captions and Backend could not process audio.");
+  } catch (fetchError) {
+    clearTimeout(timeoutId);
+    if (fetchError instanceof Error && fetchError.name === 'AbortError') {
+      console.error("⏱️ [TRANSCRIPT] Request timed out after 5 minutes");
+      throw new Error('Transcription request timed out after 5 minutes. The video may be too long or the backend is slow.');
+    }
+    console.error("❌ [TRANSCRIPT] Error:", fetchError);
+    if (fetchError instanceof Error) {
+      throw fetchError;
+    }
+    throw new Error(`Failed to generate transcript: ${String(fetchError)}`);
   }
 };
 
-/**
- * Generates a summary from the YouTube URL in the target language.
- */
-export const generateSummary = async (
-  videoUrl: string,
-  transcriptContext?: string,
-  targetLanguage: TargetLanguage = TargetLanguage.ORIGINAL
-): Promise<string> => {
-  const ai = getAiClient();
-
-  const langInstruction = targetLanguage === TargetLanguage.ORIGINAL
-    ? "in the video's original language"
-    : `in ${targetLanguage}`;
-
-  let prompt = `
-    Analyze this YouTube video: ${videoUrl}
-    
-    Task: Create a comprehensive and structured summary ${langInstruction}.
-    
-    Structure:
-    - **TL;DR**: A 2-sentence overview.
-    - **Key Takeaways**: Bullet points of the most important information.
-    - **Detailed Analysis**: A deeper dive into the content.
-    
-    Constraints:
-    - Use Google Search to verify the video content.
-    - If a transcript is provided below, use it as the primary source.
-    - Reference timestamps in Key Takeaways if available in the transcript.
-  `;
-
-  if (transcriptContext) {
-    prompt += `\n\nTRANSCRIPT CONTEXT:\n${transcriptContext.substring(0, 25000)}`;
-  }
-
-  try {
-    const response = await ai.models.generateContent({
-      model: TEXT_MODEL,
-      contents: prompt,
-      config: {
-        tools: [{ googleSearch: {} }],
-      }
-    });
-
-    return response.text || "No summary generated.";
-  } catch (error) {
-    console.error("Error generating summary:", error);
-    throw new Error("Failed to generate summary.");
-  }
-};
 
 /**
  * Translates content.
@@ -268,7 +225,7 @@ export const sendGuideMessage = async (
   4. **Chat:** Allows users to ask questions about the video content interactively.
 
   **Common User Queries (Handle these efficiently):**
-  1. *What is this project?* -> It's an AI-powered video analysis tool using Google Gemini 2.0.
+  1. *What is this project?* -> It's an AI-powered video analysis tool using Google Gemini 3 flash preview.
   2. *How do I use it?* -> Paste a YouTube link, choose the language then click Transcribe or Summarize.
   3. *Is it free?* -> Yes, this is a demo application showing the power of the Gemini API.
   4. *Can it download videos?* -> No, it analyzes the content but doesn't provide video file downloads.

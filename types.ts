@@ -18,6 +18,7 @@ export interface AnalysisResult {
   summary?: string;
   translation?: string;
   targetLanguage?: string;
+  keywords?: string[];
 }
 
 export interface ChatMessage {

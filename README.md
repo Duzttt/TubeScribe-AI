@@ -2,19 +2,223 @@
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# Run and deploy your AI Studio app
+# TubeScribe AI
 
-This contains everything you need to run your app locally.
+An AI-powered video analysis tool that transcribes, summarizes, translates, and provides interactive chat about YouTube videos using Google Gemini API and multilingual AI models.
 
 View your app in AI Studio: https://ai.studio/apps/drive/1XoeFMJu5ZwUmk2IaGEK5g7YAXiZo8_ht
 
-## Run Locally
+## Features
 
-**Prerequisites:**  Node.js
+- 🎥 **YouTube Transcription**: Extract transcripts using local Whisper AI model (no API keys needed!)
+- ⏱️ **Real-time Progress**: Server-Sent Events (SSE) for live transcription progress updates
+- 📝 **AI Summarization**: Generate summaries using Gemini AI or multilingual mBART models
+- 🔑 **Keyword Extraction**: Automatically extract key topics and keywords (via Python backend)
+- 🌍 **Multilingual Translation**: Translate content into 15+ languages
+- 💬 **Interactive Chat**: Ask questions about video content with AI-powered responses
+- 🎨 **Modern UI**: Beautiful, responsive interface with dark mode support
+- 🚀 **GPU Acceleration**: Automatic GPU detection and utilization for faster processing
+
+## Architecture
+
+This project consists of two main components:
+
+1. **Frontend** (React + TypeScript + Vite): User interface
+2. **Python Backend** (`app.py`): Provides video transcription, multilingual summarization, and keyword extraction
+
+## Prerequisites
+
+- **Node.js** 18+ (for frontend only)
+- **Python** 3.10+ (required for backend - transcription, summarization, and keywords)
+- **FFmpeg** (required for audio processing)
+- **Gemini API Key** (optional - only needed for translation and chat features)
+
+## Quick Start
+
+### 1. Frontend Setup
+
+```bash
+# Install dependencies
+npm install
+
+# Set your Gemini API key
+# Create .env.local file with:
+# VITE_API_KEY=your_gemini_api_key_here
+
+# Run development server
+npm run dev
+```
+
+The frontend will be available at `http://localhost:5173`
+
+### 2. Python Backend Setup (Required - for transcription, summarization, and keywords)
+
+The Python backend provides:
+- **Video Transcription**: Uses Whisper AI model locally (no API keys needed!)
+- **Multilingual Summarization**: Uses mBART model (50+ languages)
+- **Automatic Keyword Extraction**: Extracts key topics from transcripts
+- **Fast Processing**: Efficient local AI processing
+
+**Note**: Requires FFmpeg to be installed (see [PYTHON_BACKEND_README.md](PYTHON_BACKEND_README.md) for installation)
+
+**Troubleshooting Installation Issues:**
+If you encounter permission errors on Windows, run:
+```powershell
+.\scripts\fix-permissions.ps1
+```
+
+**Option A: Using Scripts (Recommended)**
+
+**Windows (PowerShell - Recommended):**
+```powershell
+.\scripts\start-python-backend.ps1
+```
+
+**Windows (Command Prompt):**
+```bash
+scripts\start-python-backend.bat
+```
+
+**Linux/Mac:**
+```bash
+chmod +x scripts/start-python-backend.sh
+./scripts/start-python-backend.sh
+```
+
+**Option B: Manual Setup**
+
+```bash
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Start the server
+uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+```
+
+**Option C: Using Docker**
+
+```bash
+docker build -f Dockerfile.python -t tubescribe-python-backend .
+docker run -p 8000:8000 --memory="4g" tubescribe-python-backend
+```
+
+The Python backend will be available at `http://localhost:8000`
+
+📚 **For detailed Python backend documentation, see [PYTHON_BACKEND_README.md](PYTHON_BACKEND_README.md)**
+
+## Environment Variables
+
+### Frontend (.env.local)
+```env
+VITE_API_KEY=your_gemini_api_key_here
+```
+
+### Python Backend
+The Python backend can be configured via environment variables (optional):
+```env
+PORT=8000
+HOST=0.0.0.0
+SUMMARIZATION_MODEL=facebook/mbart-large-50-many-to-many-mmt  # Optional: change summarization model
+```
+
+**Available Summarization Models:**
+- `facebook/mbart-large-50-many-to-many-mmt` (default, multilingual, 50+ languages)
+- `facebook/bart-large-cnn` (English only, faster, smaller)
+- `google/pegasus-xsum` (English, abstractive summaries)
+- `t5-base` or `t5-large` (General purpose, multilingual with proper tokenizer)
+
+## How It Works
+
+1. **Transcription**: 
+   - Python backend downloads audio from YouTube using yt-dlp
+   - Whisper AI model transcribes the audio locally (no API keys needed!)
+   - Progress is tracked in real-time via Server-Sent Events (SSE)
+   - Transcripts include timestamps for easy navigation
+
+2. **Summarization**: 
+   - Uses Python backend with mBART model for multilingual summarization (50+ languages)
+   - KeyBERT extracts key topics and keywords from transcripts
+   - All processing happens locally - no external API calls needed
+
+3. **Translation**: Uses Gemini API to translate transcripts/summaries (optional - requires API key)
+
+4. **Chat**: Uses Gemini API with video context for interactive Q&A (optional - requires API key)
+
+## Project Structure
+
+```
+tubescribe-ai/
+├── app.py                      # Python FastAPI backend
+├── requirements.txt            # Python dependencies
+├── Dockerfile.python           # Dockerfile for Python backend
+├── components/                 # React components
+│   ├── ChatInterface.tsx
+│   ├── FileUpload.tsx
+│   ├── KeywordsDisplay.tsx     # Keywords display component
+│   ├── Menu.tsx
+│   ├── ResultCard.tsx
+│   └── YouTubeInput.tsx
+├── services/
+│   ├── geminiService.ts        # Gemini API service
+│   └── summarizationService.ts # Python backend service
+├── server/                     # Node.js backend
+│   ├── index.js
+│   └── package.json
+├── scripts/                    # Helper scripts
+│   ├── start-python-backend.sh
+│   └── start-python-backend.bat
+└── README.md
+```
+
+## API Endpoints
+
+### Python Backend
+
+- `GET /` - Service info and model status
+- `GET /health` - Health check endpoint
+- `POST /api/transcribe` - Transcribe YouTube video (returns transcript with timestamps)
+- `GET /api/progress/{video_id}` - Get transcription progress (polling endpoint)
+- `GET /api/progress/{video_id}/stream` - Server-Sent Events (SSE) stream for real-time progress updates
+- `POST /summarize` - Summarize text and extract keywords (multilingual support)
+
+See [PYTHON_BACKEND_README.md](PYTHON_BACKEND_README.md) for detailed API documentation.
 
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Building for Production
+
+```bash
+# Build frontend
+npm run build
+
+# The built files will be in the dist/ directory
+```
+
+## Troubleshooting
+
+### Python Backend Issues
+- See [PYTHON_BACKEND_README.md](PYTHON_BACKEND_README.md) for detailed troubleshooting
+- Ensure you have at least 4GB RAM available (8GB+ recommended for optimal performance)
+- First run will download ~2-3GB of model files (Whisper + mBART + KeyBERT)
+- GPU setup: See [GPU_SETUP.md](GPU_SETUP.md) for CUDA installation and configuration
+- Model options: See [MODEL_OPTIONS.md](MODEL_OPTIONS.md) for alternative model configurations
+
+### Transcription Issues
+- Ensure the Python backend is running on port 8000
+- Check that FFmpeg is installed and accessible in your PATH
+- Verify GPU availability with `python check_gpu.py` (GPU speeds up transcription significantly)
+- Some videos may be unavailable or blocked (403 errors) - the backend will try multiple strategies automatically
+- First transcription may take longer as models load into memory
+- For long videos, transcription can take 1-2x the video duration on CPU, much faster on GPU
+
+### Frontend Issues
+- Clear browser cache
+- Check browser console for errors
+- Ensure all environment variables are set correctly
+
+## License
+
+[Your License Here]
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.

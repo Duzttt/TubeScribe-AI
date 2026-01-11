@@ -1,0 +1,25 @@
+# For CPU-only (default):
+#--extra-index-url https://download.pytorch.org/whl/cpu
+
+# For GPU support (CUDA), uncomment the line below and comment out the CPU line above:
+--extra-index-url https://download.pytorch.org/whl/cu121
+
+fastapi>=0.115.0
+uvicorn[standard]
+transformers>=4.40.0
+torch
+torchvision
+torchaudio
+pydantic>=2.10.0
+python-multipart
+keybert
+protobuf
+sentencepiece
+sacremoses
+yt-dlp>=2025.12.8
+ffmpeg-python
+librosa
+pytest>=7.4.0
+pytest-asyncio>=0.21.0
+httpx>=0.24.0
+langdetect>=1.0.9
