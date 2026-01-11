@@ -1,12 +1,14 @@
 """
 Summary Module for TubeScribe AI
 
-Provides multilingual text summarization and keyword extraction functionality.
-Uses mBART for summarization and KeyBERT for keyword extraction.
+Provides text summarization and keyword extraction functionality.
+Uses BART/PEGASUS for summarization (English-only) with mBART for translation.
+KeyBERT is used for keyword extraction.
 """
 
 import logging
 import re
+import os
 from dataclasses import dataclass, field
 from typing import List, Optional, Dict, Tuple, Any
 from transformers import pipeline, MBartForConditionalGeneration, MBart50TokenizerFast
@@ -90,7 +92,7 @@ LANG_CODE_MAP = {
     "en": "en_XX", "es": "es_XX", "fr": "fr_XX", "de": "de_DE",
     "zh": "zh_CN", "ja": "ja_XX", "ko": "ko_KR", "hi": "hi_IN",
     "ar": "ar_AR", "pt": "pt_XX", "it": "it_IT", "ru": "ru_RU",
-    "nl": "nl_XX", "tr": "tr_TR", "vi": "vi_VN"
+    "nl": "nl_XX", "tr": "tr_TR", "vi": "vi_VN", "ms": "ms_XX"
 }
 
 # Reverse mapping (mBART code -> 2-letter code)
@@ -101,7 +103,7 @@ LANG_NAMES = {
     "en": "English", "es": "Spanish", "fr": "French", "de": "German",
     "zh": "Chinese", "ja": "Japanese", "ko": "Korean", "hi": "Hindi",
     "ar": "Arabic", "pt": "Portuguese", "it": "Italian", "ru": "Russian",
-    "nl": "Dutch", "tr": "Turkish", "vi": "Vietnamese"
+    "nl": "Dutch", "tr": "Turkish", "vi": "Vietnamese", "ms": "Malay"
 }
 
 # Reverse mapping (name -> 2-letter code)
@@ -202,8 +204,8 @@ class SummaryService:
     """
     Service class for text summarization and keyword extraction.
     
-    Supports multilingual summarization using mBART and keyword extraction
-    using KeyBERT with multilingual models.
+    Uses English-only summarization models (BART/PEGASUS) with translation
+    preprocessing and postprocessing. Summarization always runs in English.
     """
     
     def __init__(
@@ -212,7 +214,8 @@ class SummaryService:
         kw_model: Optional[KeyBERT] = None,
         default_chunk_size: int = 500,
         min_words_for_summary: int = 50,
-        default_keyword_count: int = 10
+        default_keyword_count: int = 10,
+        translation_model_path: Optional[str] = None
     ):
         """
         Initialize the SummaryService.
@@ -225,6 +228,8 @@ class SummaryService:
             default_chunk_size: Default chunk size for text splitting (words).
             min_words_for_summary: Minimum words required to generate summary.
             default_keyword_count: Default number of keywords to extract.
+            translation_model_path: Optional local path or HuggingFace model ID for translation model.
+                                   If None, uses default mBART-50 model.
         """
         self.summarizer = summarizer
         self.kw_model = kw_model
@@ -232,9 +237,16 @@ class SummaryService:
         self.min_words_for_summary = min_words_for_summary
         self.default_keyword_count = default_keyword_count
         
+        # Translation model configuration
+        self.translation_model_path = translation_model_path or os.getenv(
+            "TRANSLATION_MODEL", 
+            "facebook/mbart-large-50-many-to-many-mmt"
+        )
+        
         # Initialize translation components (lazy loading)
         self._translator_model = None
         self._translator_tokenizer = None
+        self._translation_device = None
     
     def is_ready(self) -> bool:
         """
@@ -366,31 +378,100 @@ class SummaryService:
     def _get_translator(self):
         """
         Lazy load the translation model and tokenizer.
-        Uses mBART-50 for multilingual translation.
-        Automatically uses GPU if available.
+        Uses mBART-50 for multilingual translation - 100% LOCAL, NO API KEYS NEEDED.
+        Automatically uses GPU if available for fast translation.
+        Supports local model paths or HuggingFace model IDs.
+        
+        This is a fully local solution - no external APIs (Gemini, Google Translate, etc.) required.
         """
         if self._translator_model is None:
             try:
                 # Detect device (GPU if available, else CPU)
                 device = "cuda" if torch.cuda.is_available() else "cpu"
-                logger.info(f"Loading translation model (mBART-50) on {device.upper()}...")
-                model_name = "facebook/mbart-large-50-many-to-many-mmt"
-                self._translator_tokenizer = MBart50TokenizerFast.from_pretrained(model_name)
-                self._translator_model = MBartForConditionalGeneration.from_pretrained(model_name)
-                # Move model to GPU if available
+                self._translation_device = device
+                
+                model_name = self.translation_model_path
+                is_local_path = os.path.exists(model_name) if model_name else False
+                
+                if is_local_path:
+                    logger.info(f"Loading translation model from local path on {device.upper()}: {model_name}")
+                else:
+                    logger.info(f"Loading translation model (HuggingFace) on {device.upper()}: {model_name}")
+                
+                # Load tokenizer and model
+                # Check if it's a local path or HuggingFace ID
+                if is_local_path:
+                    # Load from local path
+                    self._translator_tokenizer = MBart50TokenizerFast.from_pretrained(
+                        model_name,
+                        local_files_only=True
+                    )
+                    self._translator_model = MBartForConditionalGeneration.from_pretrained(
+                        model_name,
+                        local_files_only=True
+                    )
+                else:
+                    # Load from HuggingFace (will download if not cached)
+                    self._translator_tokenizer = MBart50TokenizerFast.from_pretrained(model_name)
+                    self._translator_model = MBartForConditionalGeneration.from_pretrained(model_name)
+                
+                # Move model to GPU if available and optimize
                 if device == "cuda":
-                    self._translator_model = self._translator_model.to(device)
-                    logger.info(f"✅ Translation model loaded successfully on GPU")
+                    # Use half precision (FP16) for better GPU performance and memory usage
+                    try:
+                        self._translator_model = self._translator_model.to(device)
+                        # Try to use half precision if supported
+                        if torch.cuda.is_available() and hasattr(torch.cuda, 'get_device_capability'):
+                            device_capability = torch.cuda.get_device_capability(device)
+                            if device_capability[0] >= 7:  # Compute capability 7.0+ supports Tensor Cores
+                                self._translator_model = self._translator_model.half()
+                                logger.info(f"✅ Translation model loaded on GPU with FP16 precision")
+                            else:
+                                logger.info(f"✅ Translation model loaded successfully on GPU")
+                        else:
+                            logger.info(f"✅ Translation model loaded successfully on GPU")
+                    except Exception as fp16_error:
+                        logger.warning(f"Could not use FP16 precision: {fp16_error}, using FP32")
+                        self._translator_model = self._translator_model.to(device)
+                        logger.info(f"✅ Translation model loaded successfully on GPU (FP32)")
                 else:
                     logger.info(f"✅ Translation model loaded successfully on CPU")
+                
+                # Enable evaluation mode for faster inference
+                self._translator_model.eval()
+                
+                # Log supported languages from tokenizer
+                supported_lang_codes = list(tokenizer.lang_code_to_id.keys())
+                logger.info(f"📋 Translation model supports {len(supported_lang_codes)} languages")
+                logger.debug(f"   Supported language codes: {', '.join(sorted(supported_lang_codes)[:20])}...")
+                
+                # Check if Malay is supported
+                malay_variants = ['ms_XX', 'ms_MY', 'ms']
+                malay_supported = any(variant in supported_lang_codes for variant in malay_variants)
+                if malay_supported:
+                    actual_malay_code = next((v for v in malay_variants if v in supported_lang_codes), None)
+                    logger.info(f"✅ Malay language support detected: {actual_malay_code}")
+                else:
+                    logger.warning(f"⚠️  Malay (ms_XX) not found in supported languages. Available codes containing 'ms': {[c for c in supported_lang_codes if 'ms' in c.lower()]}")
+                
+                # Log model info
+                if device == "cuda":
+                    gpu_name = torch.cuda.get_device_name(0)
+                    gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
+                    logger.info(f"   🎮 GPU: {gpu_name} ({gpu_memory:.1f}GB)")
+                
             except Exception as e:
                 logger.error(f"Failed to load translation model: {e}")
+                import traceback
+                logger.error(traceback.format_exc())
                 return None, None
         return self._translator_model, self._translator_tokenizer
     
     def _translate(self, text: str, source_lang: str, target_lang: str) -> str:
         """
-        Translate text from source language to target language.
+        Translate text from source language to target language using LOCAL mBART-50 model.
+        This is a fully local translation - NO API KEYS REQUIRED.
+        Automatically uses GPU for fast processing if available.
         
         Args:
             text: Text to translate.
@@ -416,32 +497,72 @@ class SummaryService:
             logger.warning("Translation model not available, returning original text")
             return text
         
+        # Validate that the language codes are supported by the tokenizer
+        if src_mbart not in tokenizer.lang_code_to_id:
+            supported_sample = list(tokenizer.lang_code_to_id.keys())[:15]
+            logger.error(f"❌ Source language code '{src_mbart}' not supported by translation model.")
+            logger.error(f"   Supported codes (sample): {', '.join(sorted(supported_sample))}...")
+            logger.warning(f"⚠️  Returning original text (translation failed for {source_lang} -> {target_lang})")
+            # Try to find similar language codes
+            similar_codes = [code for code in tokenizer.lang_code_to_id.keys() if source_lang.lower() in code.lower() or code.lower().startswith(source_lang.lower())]
+            if similar_codes:
+                logger.info(f"💡 Similar language codes found: {similar_codes}")
+            return text
+        
+        if tgt_mbart not in tokenizer.lang_code_to_id:
+            supported_sample = list(tokenizer.lang_code_to_id.keys())[:15]
+            logger.error(f"❌ Target language code '{tgt_mbart}' not supported by translation model.")
+            logger.error(f"   Supported codes (sample): {', '.join(sorted(supported_sample))}...")
+            logger.warning(f"⚠️  Returning original text (translation failed for {source_lang} -> {target_lang})")
+            # Try to find similar language codes
+            similar_codes = [code for code in tokenizer.lang_code_to_id.keys() if target_lang.lower() in code.lower() or code.lower().startswith(target_lang.lower())]
+            if similar_codes:
+                logger.info(f"💡 Similar language codes found: {similar_codes}")
+            # Check for Indonesian as potential fallback for Malay (they are related languages)
+            if target_lang == "ms" and "id_ID" in tokenizer.lang_code_to_id:
+                logger.info(f"💡 Note: Indonesian (id_ID) is available and may be used as a fallback for Malay")
+            return text
+        
         try:
-            # Detect device
-            device = "cuda" if torch.cuda.is_available() else "cpu"
+            # Use the device from model initialization
+            device = self._translation_device or ("cuda" if torch.cuda.is_available() else "cpu")
             
             # Set source language for tokenizer
             tokenizer.src_lang = src_mbart
             
             # Tokenize input and move to device
-            encoded = tokenizer(text, return_tensors="pt", max_length=1024, truncation=True)
+            encoded = tokenizer(text, return_tensors="pt", max_length=1024, truncation=True, padding=True)
             encoded = {k: v.to(device) for k, v in encoded.items()}
             
-            # Generate translation with forced target language
-            generated_tokens = model.generate(
-                **encoded,
-                forced_bos_token_id=tokenizer.lang_code_to_id[tgt_mbart],
-                max_length=1024
-            )
+            # Get target language token ID
+            tgt_lang_token_id = tokenizer.lang_code_to_id[tgt_mbart]
             
-            # Decode translation
+            # Generate translation with forced target language
+            # Use torch.no_grad() for faster inference and lower memory usage
+            # This is 100% LOCAL translation using GPU (no API calls)
+            device_label = "GPU" if device == "cuda" else "CPU"
+            logger.debug(f"🔄 Translating on {device_label} using local mBART-50 model...")
+            
+            with torch.no_grad():
+                generated_tokens = model.generate(
+                    **encoded,
+                    forced_bos_token_id=tgt_lang_token_id,
+                    max_length=1024,
+                    num_beams=5,  # Beam search for better quality
+                    early_stopping=True,
+                    do_sample=False
+                )
+            
+            # Decode translation (move back to CPU for decoding)
             translation = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)[0]
             
-            logger.info(f"✅ Translated from {LANG_NAMES.get(source_lang, source_lang)} to {LANG_NAMES.get(target_lang, target_lang)}")
+            logger.info(f"✅ Translated on {device_label} from {LANG_NAMES.get(source_lang, source_lang)} to {LANG_NAMES.get(target_lang, target_lang)} ({len(translation.split())} words)")
             return translation
             
         except Exception as e:
             logger.error(f"Translation failed: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return text
     
     def _chunk_text(self, text: str, chunk_size: Optional[int] = None) -> List[str]:
@@ -529,10 +650,11 @@ class SummaryService:
         extract_keywords: bool = False
     ) -> PartSummary:
         """
-        Summarize a single part/chunk of text.
+        Summarize a single part/chunk of text in English only.
+        Text must already be in English before calling this method.
         
         Args:
-            chunk_text: The text to summarize.
+            chunk_text: The text to summarize (must be in English).
             part_number: Part number (1-indexed).
             total_parts: Total number of parts.
             start_pos: Start character position in original text.
@@ -553,7 +675,7 @@ class SummaryService:
         min_length, max_length = self._calculate_summary_length(word_count, compression_ratio)
         
         try:
-            logger.info(f"📄 Summarizing {title}: {word_count} words -> target {min_length}-{max_length} words")
+            logger.info(f"📄 Summarizing {title}: {word_count} words -> target {min_length}-{max_length} words (English)")
             
             result = self.summarizer(
                 chunk_text,
@@ -653,11 +775,12 @@ class SummaryService:
         extract_part_keywords: bool = False
     ) -> StructuredSummary:
         """
-        Summarize text into structured parts with 3-step architecture:
+        Summarize text into structured parts with proper architecture:
         
         STEP 1: Detect source language of transcript
-        STEP 2: Summarize each part in source language
-        STEP 3: Translate all part summaries to output language
+        STEP 2A: Translate transcript to English (if source != English)
+        STEP 2B: Summarize each part in English only (using BART/PEGASUS)
+        STEP 3: Translate all part summaries to output language (if output != English)
         
         Args:
             text: Input text to summarize.
@@ -742,19 +865,36 @@ class SummaryService:
             )
         
         # ============================================================
-        # STEP 2: SUMMARIZE EACH PART IN SOURCE LANGUAGE
+        # STEP 2A: TRANSLATE TRANSCRIPT TO ENGLISH (if needed)
+        # Summarization always happens in English using BART/PEGASUS
+        # ============================================================
+        text_for_summarization = cleaned_text
+        
+        if source_lang != "en":
+            logger.info(f"")
+            logger.info(f"🔄 STEP 2A - TRANSLATE TRANSCRIPT TO ENGLISH")
+            logger.info(f"   Translating from {LANG_NAMES.get(source_lang, source_lang)} -> English")
+            text_for_summarization = self._translate(cleaned_text, source_lang, "en")
+            logger.info(f"   ✓ Transcript translated to English ({len(text_for_summarization.split())} words)")
+        else:
+            logger.info(f"")
+            logger.info(f"📝 STEP 2A - TRANSCRIPT ALREADY IN ENGLISH (no translation needed)")
+        
+        # ============================================================
+        # STEP 2B: SUMMARIZE EACH PART IN ENGLISH
         # ============================================================
         logger.info(f"")
-        logger.info(f"📝 STEP 2 - SUMMARIZE IN SOURCE LANGUAGE ({LANG_NAMES.get(source_lang, source_lang)})")
+        logger.info(f"📝 STEP 2B - SUMMARIZE IN ENGLISH (using BART/PEGASUS)")
         
-        chunks = self._chunk_text_with_positions(cleaned_text, chunk_size)
-        total_parts = len(chunks)
+        # Chunk the text for summarization
+        chunks_with_pos = self._chunk_text_with_positions(text_for_summarization, chunk_size)
+        total_parts = len(chunks_with_pos)
         logger.info(f"   Divided into {total_parts} parts")
         
-        # Summarize each part (in source language)
+        # Summarize each part in English
         part_summaries: List[PartSummary] = []
         
-        for i, (chunk_text, start_pos, end_pos) in enumerate(chunks, 1):
+        for i, (chunk_text, start_pos, end_pos) in enumerate(chunks_with_pos, 1):
             part_summary = self._summarize_single_part(
                 chunk_text=chunk_text,
                 part_number=i,
@@ -764,35 +904,36 @@ class SummaryService:
                 compression_ratio=compression_ratio,
                 extract_keywords=extract_part_keywords
             )
-            logger.info(f"   ✓ Part {i}/{total_parts}: {len(part_summary.summary.split())} words in {LANG_NAMES.get(source_lang, source_lang)}")
+            logger.info(f"   ✓ Part {i}/{total_parts}: {len(part_summary.summary.split())} words in English")
             part_summaries.append(part_summary)
         
-        # Generate overview (still in source language)
-        overview_in_source = ""
+        # Generate overview in English
+        overview_in_english = ""
         if generate_overview:
-            overview_in_source = self._generate_overview(part_summaries, compression_ratio=0.5)
-            logger.info(f"   ✓ Overview: {len(overview_in_source.split())} words in {LANG_NAMES.get(source_lang, source_lang)}")
+            overview_in_english = self._generate_overview(part_summaries, compression_ratio=0.5)
+            logger.info(f"   ✓ Overview: {len(overview_in_english.split())} words in English")
         
         # ============================================================
-        # STEP 3: TRANSLATE TO OUTPUT LANGUAGE (if different)
+        # STEP 3: TRANSLATE SUMMARIES TO OUTPUT LANGUAGE (if needed)
         # ============================================================
         logger.info(f"")
         logger.info(f"🔄 STEP 3 - TRANSLATE TO OUTPUT LANGUAGE")
         
-        if source_lang != output_lang:
-            logger.info(f"   Translating: {LANG_NAMES.get(source_lang, source_lang)} -> {LANG_NAMES.get(output_lang, output_lang)}")
+        # Translate summaries to output language if needed
+        if output_lang != "en":
+            logger.info(f"   Translating: English -> {LANG_NAMES.get(output_lang, output_lang)}")
             for i, part in enumerate(part_summaries, 1):
-                part.summary = self._translate(part.summary, source_lang, output_lang)
+                part.summary = self._translate(part.summary, "en", output_lang)
                 logger.info(f"   ✓ Part {i} translated")
             
-            if overview_in_source:
-                overview = self._translate(overview_in_source, source_lang, output_lang)
+            if overview_in_english:
+                overview = self._translate(overview_in_english, "en", output_lang)
                 logger.info(f"   ✓ Overview translated")
             else:
                 overview = ""
         else:
-            logger.info(f"   No translation needed (source = output = {LANG_NAMES.get(source_lang, source_lang)})")
-            overview = overview_in_source
+            logger.info(f"   No translation needed (output language is English)")
+            overview = overview_in_english
         
         # Calculate total summary words
         summary_word_count = sum(len(p.summary.split()) for p in part_summaries)
@@ -840,9 +981,10 @@ class SummaryService:
         """
         Summarize text with proper 3-step architecture:
         
-        STEP 1: Transcript (source language) 
-        STEP 2: Summarize (in source language)
-        STEP 3: Translate summary (to user's output language)
+        STEP 1: Detect source language
+        STEP 2A: Translate transcript to English (if source != English)
+        STEP 2B: Summarize in English only (using BART/PEGASUS)
+        STEP 3: Translate summary to output language (if output != English)
         
         Args:
             text: Input text to summarize.
@@ -886,8 +1028,9 @@ class SummaryService:
         # Determine user's desired OUTPUT language
         language_code = normalize_language_code(language)
         if language_code == "AUTO":
-            output_lang = source_lang  # Output in same language as transcript
-            logger.info(f"   Output language: AUTO -> {LANG_NAMES.get(output_lang, output_lang)}")
+            # AUTO means output in same language as transcript
+            output_lang = source_lang
+            logger.info(f"   Output language: AUTO -> {LANG_NAMES.get(output_lang, output_lang)} (same as source)")
         else:
             output_lang = MBART_TO_LANG.get(language_code, "en")
             logger.info(f"   Output language: {language} -> {LANG_NAMES.get(output_lang, output_lang)}")
@@ -917,11 +1060,10 @@ class SummaryService:
                 raise ValueError(f"Text too short for summarization (minimum {self.min_words_for_summary} words)")
         
         # ============================================================
-        # STEP 2: TRANSLATE TRANSCRIPT TO ENGLISH (if needed)
-        # Summarization model (BART/PEGASUS) only works with English
+        # STEP 2A: TRANSLATE TRANSCRIPT TO ENGLISH (if needed)
+        # Summarization always happens in English using BART/PEGASUS
         # ============================================================
         text_for_summarization = cleaned_text
-        summary_lang = "en"  # BART/PEGASUS always summarizes in English
         
         if source_lang != "en":
             logger.info(f"")
@@ -931,15 +1073,13 @@ class SummaryService:
             logger.info(f"   ✓ Transcript translated to English ({len(text_for_summarization.split())} words)")
         else:
             logger.info(f"")
-            logger.info(f"📝 STEP 2 - TRANSCRIPT ALREADY IN ENGLISH (no translation needed)")
+            logger.info(f"📝 STEP 2A - TRANSCRIPT ALREADY IN ENGLISH (no translation needed)")
         
         # ============================================================
-        # STEP 3: SUMMARIZE IN ENGLISH USING BART/PEGASUS
-        # mBART is NOT used for summarization - only for translation
+        # STEP 2B: SUMMARIZE IN ENGLISH
         # ============================================================
         logger.info(f"")
-        logger.info(f"📝 STEP 3 - SUMMARIZE IN ENGLISH (using BART/PEGASUS)")
-        logger.info(f"   Summary language: {summary_lang}")
+        logger.info(f"📝 STEP 2B - SUMMARIZE IN ENGLISH (using BART/PEGASUS)")
         
         chunk_size = chunk_size or self.default_chunk_size
         chunks = self._chunk_text(text_for_summarization, chunk_size)
@@ -955,7 +1095,6 @@ class SummaryService:
                 
                 logger.info(f"   Chunk {i+1}/{len(chunks)}: {input_len} words -> target {min_length}-{max_length}")
                 
-                # Summarize using BART/PEGASUS (English-only models, no language control needed)
                 result = self.summarizer(
                     chunk,
                     max_length=max_length,
@@ -974,25 +1113,25 @@ class SummaryService:
                 fallback_text = " ".join(chunk_words) + "..."
                 summaries.append(fallback_text)
         
-        # Combine chunk summaries (in English)
+        # Combine chunk summaries
         summary_in_english = " ".join(summaries)
         logger.info(f"   Combined summary: {len(summary_in_english.split())} words in English")
         logger.info(f"   Preview: {summary_in_english[:150]}...")
         
         # ============================================================
-        # STEP 4: TRANSLATE SUMMARY TO OUTPUT LANGUAGE (if needed)
-        # Use mBART ONLY for translation, not summarization
+        # STEP 3: TRANSLATE SUMMARY TO OUTPUT LANGUAGE (if needed)
         # ============================================================
         logger.info(f"")
-        logger.info(f"🔄 STEP 4 - TRANSLATE SUMMARY TO OUTPUT LANGUAGE")
+        logger.info(f"🔄 STEP 3 - TRANSLATE TO OUTPUT LANGUAGE")
         
+        # Translate summary to output language if needed
         if output_lang != "en":
             logger.info(f"   Translating: English -> {LANG_NAMES.get(output_lang, output_lang)}")
             final_summary = self._translate(summary_in_english, "en", output_lang)
             logger.info(f"   ✓ Translation complete: {len(final_summary.split())} words")
             logger.info(f"   Preview: {final_summary[:150]}...")
         else:
-            logger.info(f"   No translation needed (output = English)")
+            logger.info(f"   No translation needed (output language is English)")
             final_summary = summary_in_english
         
         logger.info("=" * 60)

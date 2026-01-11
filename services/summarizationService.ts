@@ -38,6 +38,7 @@ const getLanguageCode = (targetLanguage: string): string => {
     'Dutch': 'nl_XX',
     'Turkish': 'tr_TR',
     'Vietnamese': 'vi_VN',
+    'Malay': 'ms_XX',
   };
   
   return langMap[targetLanguage] || 'en_XX';

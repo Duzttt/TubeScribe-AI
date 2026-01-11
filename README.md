@@ -26,6 +26,8 @@ This project consists of two main components:
 1. **Frontend** (React + TypeScript + Vite): User interface
 2. **Python Backend** (`app.py`): Provides video transcription, multilingual summarization, and keyword extraction
 
+📚 **For detailed system architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md)**
+
 ## Prerequisites
 
 - **Node.js** 18+ (for frontend only)
@@ -51,9 +53,9 @@ The Python backend handles transcription, summarization, and keyword extraction 
 **Check Prerequisites:**
 - ✅ Python 3.10+ installed (`python --version`)
 - ✅ FFmpeg installed (`ffmpeg -version`)
-  - Windows: Download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to PATH
-  - macOS: `brew install ffmpeg`
-  - Linux: `sudo apt install ffmpeg` or `sudo yum install ffmpeg`
+  - **Windows**: `winget install ffmpeg` or download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to PATH
+  - **macOS**: `brew install ffmpeg`
+  - **Linux**: `sudo apt install ffmpeg` (Ubuntu/Debian) or `sudo yum install ffmpeg` (RHEL/CentOS)
 
 **Choose Your Setup Method:**
 
@@ -266,6 +268,13 @@ npm run build
 
 # The built files will be in the dist/ directory
 ```
+
+## Known Limitations
+
+### Malay Language Support
+**The models used in this project do not support Malay language.** While Malay may appear in some language lists, the underlying AI models (mBART-50, BART, and Whisper) do not provide reliable support for Malay transcription, summarization, or translation. Users processing Malay content may experience reduced accuracy, poor summarization results, or translation errors.
+
+For more details, see [MODEL_OPTIONS.md](MODEL_OPTIONS.md#known-limitations).
 
 ## Troubleshooting
 

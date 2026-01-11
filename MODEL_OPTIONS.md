@@ -10,6 +10,7 @@ The summarization model can be changed via the `SUMMARIZATION_MODEL` environment
 - **Size**: ~2GB
 - **Speed**: Medium
 - **Use case**: When you need to summarize content in multiple languages
+- **⚠️ Limitation**: This model does **not support Malay language**. While Malay may appear in language configuration lists, the model does not provide reliable summarization or translation for Malay content.
 
 ### 2. **facebook/bart-large-cnn**
 - **Languages**: English only
@@ -76,3 +77,20 @@ SUMMARIZATION_MODEL = os.getenv("SUMMARIZATION_MODEL", "facebook/bart-large-cnn"
 - English-only models are faster but won't work for non-English content
 - After changing the model, restart the backend server
 - The model will be cached in your HuggingFace cache directory
+
+## Known Limitations
+
+### Malay Language Support
+**The models used in this project do not support Malay language.** While Malay (language code: `ms`) may appear in some language lists or configuration files, the underlying AI models (including mBART-50, BART, and Whisper) do not provide reliable support for:
+
+- Malay transcription accuracy
+- Malay summarization quality
+- Malay translation functionality
+
+Users attempting to process Malay content may experience:
+- Reduced transcription accuracy
+- Poor or incorrect summarization results
+- Translation errors or failures
+- Unexpected behavior in language detection
+
+**Recommendation**: For Malay content, consider using alternative tools or models specifically trained on Malay language data.

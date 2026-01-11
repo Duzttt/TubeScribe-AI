@@ -118,43 +118,68 @@ export const generateTranscript = async (
 
 
 /**
- * Translates content.
+ * Translates content using LOCAL Python backend (mBART-50 model).
+ * 100% LOCAL - NO API KEYS REQUIRED!
+ * Uses GPU if available for fast translation.
  */
 export const translateContent = async (
   text: string,
   targetLanguage: TargetLanguage
 ): Promise<string> => {
-  const ai = getAiClient();
-
   if (targetLanguage === TargetLanguage.ORIGINAL) {
     return text; // No op
   }
 
-  const prompt = `
-    You are a professional translator.
-    Task: Translate the following text into ${targetLanguage}.
-    
-    Guidelines:
-    - Maintain the original tone and style.
-    - **CRITICAL**: Preserve all timestamps (e.g., [10:05]) exactly where they appear.
-    - **FORMAT**: Use Markdown. Ensure timestamps and speaker labels at the start of lines are **bold** (e.g., **[10:05] Speaker:**) to maintain a structured transcript format.
-    - Preserve speaker names.
-    - Do not summarize; provide a full translation.
-    
-    Text to translate:
-    ${text.substring(0, 30000)}
-  `;
+  // Map TargetLanguage enum values to language codes for mBART
+  const languageMap: Record<string, string> = {
+    [TargetLanguage.ENGLISH]: "en",
+    [TargetLanguage.CHINESE_SIMPLIFIED]: "zh",
+    [TargetLanguage.SPANISH]: "es",
+    [TargetLanguage.FRENCH]: "fr",
+    [TargetLanguage.GERMAN]: "de",
+    [TargetLanguage.JAPANESE]: "ja",
+    [TargetLanguage.KOREAN]: "ko",
+    [TargetLanguage.PORTUGUESE]: "pt",
+    [TargetLanguage.ITALIAN]: "it",
+    [TargetLanguage.RUSSIAN]: "ru",
+    [TargetLanguage.HINDI]: "hi",
+    [TargetLanguage.ARABIC]: "ar",
+    [TargetLanguage.DUTCH]: "nl",
+    [TargetLanguage.TURKISH]: "tr",
+    [TargetLanguage.VIETNAMESE]: "vi",
+    [TargetLanguage.MALAY]: "ms",
+    [TargetLanguage.ORIGINAL]: "auto"
+  };
+
+  const targetLangCode = languageMap[targetLanguage] || "en";
+
+  console.log(`🔄 [TRANSLATE] Using LOCAL Python backend (mBART-50) for translation to ${targetLanguage}...`);
 
   try {
-    const response = await ai.models.generateContent({
-      model: TEXT_MODEL,
-      contents: prompt,
+    const response = await fetch(`${PYTHON_BACKEND_URL}/api/translate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        text: text,
+        target_language: targetLangCode,
+        source_language: null  // Auto-detect
+      }),
     });
 
-    return response.text || "No translation generated.";
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+      console.error("❌ [TRANSLATE] Backend returned error:", errorData);
+      throw new Error(errorData.detail || `Translation failed (${response.status})`);
+    }
+
+    const data = await response.json();
+    console.log(`✅ [TRANSLATE] Translation complete: ${data.original_length} words -> ${data.translated_length} words`);
+    console.log(`   From: ${data.source_language} -> To: ${data.target_language}`);
+    
+    return data.translated_text || text;
   } catch (error) {
-    console.error("Error translating content:", error);
-    throw new Error("Failed to translate content.");
+    console.error("❌ [TRANSLATE] Error translating content:", error);
+    throw new Error(`Failed to translate content: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 };
 

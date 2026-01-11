@@ -7,7 +7,7 @@ from keybert import KeyBERT
 import logging
 from typing import List, Optional, Dict
 import re
-from summary import SummaryService, get_supported_languages, normalize_language_code, get_language_name
+from summary import SummaryService, get_supported_languages, normalize_language_code, get_language_name, MBART_TO_LANG
 import yt_dlp
 import tempfile
 import os
@@ -61,14 +61,17 @@ app.add_middleware(
 )
 
 # --- Summarization Model Initialization ---
-# IMPORTANT: mBART is NOT used for summarization - only for translation
-# Summarization uses BART/PEGASUS (English-only models)
 # Options:
 # - "facebook/bart-large-cnn" (default, English only, fast and accurate)
 # - "google/pegasus-xsum" (English, abstractive summaries, longer outputs)
+# - "facebook/mbart-large-50-many-to-many-mmt" (Multilingual, supports 50+ languages)
+#   Note: For multilingual support, use mBART to summarize directly in source language
 SUMMARIZATION_MODEL = os.getenv("SUMMARIZATION_MODEL", "facebook/bart-large-cnn")
 
-logger.info(f"Loading summarization model (English-only): {SUMMARIZATION_MODEL}...")
+# Detect if model is multilingual
+is_multilingual_model = any(indicator in SUMMARIZATION_MODEL.lower() for indicator in ['mbart', 'multilingual', 'mt5'])
+model_type = "Multilingual" if is_multilingual_model else "English-only"
+logger.info(f"Loading summarization model ({model_type}): {SUMMARIZATION_MODEL}...")
 try:
     summarizer = pipeline(
         "summarization", 
@@ -99,8 +102,16 @@ except Exception as e:
     logger.error(f"Failed to load keyword model: {e}")
     kw_model = None
 
+# Translation model configuration (optional, defaults to mBART-50)
+# Can be set to local path or HuggingFace model ID
+TRANSLATION_MODEL = os.getenv("TRANSLATION_MODEL", None)  # None = use default
+
 # Initialize SummaryService with loaded models
-summary_service = SummaryService(summarizer=summarizer, kw_model=kw_model)
+summary_service = SummaryService(
+    summarizer=summarizer, 
+    kw_model=kw_model,
+    translation_model_path=TRANSLATION_MODEL
+)
 if summary_service.is_ready():
     logger.info("✅ SummaryService initialized successfully")
 else:
@@ -114,7 +125,7 @@ try:
     # Enable GPU if available for faster processing
     transcriber = pipeline(
         "automatic-speech-recognition",
-        model="openai/whisper-base",
+        model="openai/whisper-small",
         chunk_length_s=30,
         return_timestamps=True,
         device=0 if device == "cuda" else -1  # Use GPU if available
@@ -127,11 +138,17 @@ except Exception as e:
 class TextData(BaseModel):
     text: str
     # Language for summary output. Accepts:
-    # - "AUTO" (default): auto-detect and use source language
-    # - Language names: "English", "Chinese", "Spanish", etc.
-    # - 2-letter codes: "en", "zh", "es", etc.
-    # - mBART codes: "en_XX", "zh_CN", etc.
-    lang: str = "AUTO" 
+    # - "AUTO" (default): output in same language as source transcript
+    # - Language names: "English", "Chinese", "Spanish", "French", etc.
+    # - 2-letter codes: "en", "zh", "es", "fr", etc.
+    # - mBART codes: "en_XX", "zh_CN", "es_XX", etc.
+    # Note: Summarization uses English models internally, then translates to your chosen language
+    lang: str = "AUTO"
+
+class TranslateData(BaseModel):
+    text: str
+    target_language: str  # Target language: "en", "zh", "es", "fr", "English", "Chinese", etc.
+    source_language: Optional[str] = None  # Optional: auto-detect if not provided 
 
 class TranscribeRequest(BaseModel):
     videoUrl: str
@@ -154,6 +171,18 @@ class SummarizeResponse(BaseModel):
     keywords: List[str]
     source_language: Optional[str] = None
     target_language: Optional[str] = None
+
+class TranslateData(BaseModel):
+    text: str
+    target_language: str  # Target language: "en", "zh", "es", "fr", "English", "Chinese", etc.
+    source_language: Optional[str] = None  # Optional: auto-detect if not provided
+
+class TranslateResponse(BaseModel):
+    translated_text: str
+    source_language: str
+    target_language: str
+    original_length: int
+    translated_length: int
 
 def get_video_id(url: str) -> Optional[str]:
     """Extract video ID from YouTube URL"""
@@ -771,3 +800,61 @@ async def summarize_multilingual(data: TextData):
     except Exception as e:
         logger.error(f"Unexpected error in summarize: {e}")
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
+
+@app.post("/api/translate", response_model=TranslateResponse)
+async def translate_text(data: TranslateData):
+    """
+    Translate text using local mBART-50 model (100% LOCAL - NO API KEYS REQUIRED).
+    Uses GPU if available for fast translation.
+    
+    Args:
+        data: TranslateData containing text, target_language, and optional source_language
+        
+    Returns:
+        TranslateResponse with translated text and language information
+    """
+    if not data.text or not data.text.strip():
+        raise HTTPException(status_code=400, detail="Text cannot be empty")
+    
+    if not summary_service.is_ready():
+        raise HTTPException(
+            status_code=503, 
+            detail="Translation service not ready. Please check server logs."
+        )
+    
+    try:
+        # Normalize target language
+        target_lang_code = normalize_language_code(data.target_language)
+        target_lang = MBART_TO_LANG.get(target_lang_code, "en") if target_lang_code != "AUTO" else "en"
+        
+        # Detect source language if not provided
+        if data.source_language:
+            source_lang_code = normalize_language_code(data.source_language)
+            source_lang = MBART_TO_LANG.get(source_lang_code, "en") if source_lang_code != "AUTO" else "en"
+        else:
+            # Auto-detect source language
+            source_lang = summary_service._detect_language(data.text)
+        
+        logger.info(f"🌍 Translation request: {get_language_name(source_lang)} ({source_lang}) -> {get_language_name(target_lang)} ({target_lang})")
+        
+        # Translate using local model
+        translated_text = summary_service._translate(data.text, source_lang, target_lang)
+        
+        original_length = len(data.text.split())
+        translated_length = len(translated_text.split())
+        
+        logger.info(f"✅ Translation complete: {original_length} words -> {translated_length} words")
+        
+        return TranslateResponse(
+            translated_text=translated_text,
+            source_language=get_language_name(source_lang),
+            target_language=get_language_name(target_lang),
+            original_length=original_length,
+            translated_length=translated_length
+        )
+        
+    except Exception as e:
+        logger.error(f"Translation failed: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        raise HTTPException(status_code=500, detail=f"Translation failed: {str(e)}")
