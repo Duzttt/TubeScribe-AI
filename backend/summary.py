@@ -10,7 +10,7 @@ import logging
 import re
 import os
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Tuple, Any
+from typing import List, Optional, Dict, Tuple, Any, Callable
 from transformers import pipeline, MBartForConditionalGeneration, MBart50TokenizerFast
 from keybert import KeyBERT
 import torch
@@ -441,7 +441,7 @@ class SummaryService:
                 self._translator_model.eval()
                 
                 # Log supported languages from tokenizer
-                supported_lang_codes = list(tokenizer.lang_code_to_id.keys())
+                supported_lang_codes = list(self._translator_tokenizer.lang_code_to_id.keys())
                 logger.info(f"📋 Translation model supports {len(supported_lang_codes)} languages")
                 logger.debug(f"   Supported language codes: {', '.join(sorted(supported_lang_codes)[:20])}...")
                 
@@ -467,7 +467,13 @@ class SummaryService:
                 return None, None
         return self._translator_model, self._translator_tokenizer
     
-    def _translate(self, text: str, source_lang: str, target_lang: str) -> str:
+    def _translate(
+        self, 
+        text: str, 
+        source_lang: str, 
+        target_lang: str,
+        progress_callback: Optional[Callable[[int, str], None]] = None
+    ) -> str:
         """
         Translate text from source language to target language using LOCAL mBART-50 model.
         This is a fully local translation - NO API KEYS REQUIRED.
@@ -477,11 +483,14 @@ class SummaryService:
             text: Text to translate.
             source_lang: Source language code (2-letter, e.g., 'it', 'en').
             target_lang: Target language code (2-letter, e.g., 'en', 'es').
+            progress_callback: Optional callback function(progress, message) to report progress (0-100).
             
         Returns:
             Translated text, or original text if translation fails.
         """
         if source_lang == target_lang:
+            if progress_callback:
+                progress_callback(100, "No translation needed (same language)")
             return text
         
         # Get mBART language codes
@@ -526,43 +535,122 @@ class SummaryService:
         try:
             # Use the device from model initialization
             device = self._translation_device or ("cuda" if torch.cuda.is_available() else "cpu")
-            
-            # Set source language for tokenizer
-            tokenizer.src_lang = src_mbart
-            
-            # Tokenize input and move to device
-            encoded = tokenizer(text, return_tensors="pt", max_length=1024, truncation=True, padding=True)
-            encoded = {k: v.to(device) for k, v in encoded.items()}
-            
-            # Get target language token ID
-            tgt_lang_token_id = tokenizer.lang_code_to_id[tgt_mbart]
-            
-            # Generate translation with forced target language
-            # Use torch.no_grad() for faster inference and lower memory usage
-            # This is 100% LOCAL translation using GPU (no API calls)
             device_label = "GPU" if device == "cuda" else "CPU"
-            logger.debug(f"🔄 Translating on {device_label} using local mBART-50 model...")
             
-            with torch.no_grad():
-                generated_tokens = model.generate(
-                    **encoded,
-                    forced_bos_token_id=tgt_lang_token_id,
-                    max_length=1024,
-                    num_beams=5,  # Beam search for better quality
-                    early_stopping=True,
-                    do_sample=False
-                )
+            # Chunk text for large translations to enable progress tracking
+            # mBART has max length of 1024 tokens, so we chunk at ~400 words to be safe
+            CHUNK_SIZE_WORDS = 400
+            text_words = text.split()
+            total_words = len(text_words)
             
-            # Decode translation (move back to CPU for decoding)
-            translation = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)[0]
-            
-            logger.info(f"✅ Translated on {device_label} from {LANG_NAMES.get(source_lang, source_lang)} to {LANG_NAMES.get(target_lang, target_lang)} ({len(translation.split())} words)")
-            return translation
+            # If text is short enough, translate in one go
+            if total_words <= CHUNK_SIZE_WORDS:
+                if progress_callback:
+                    progress_callback(10, "Starting translation...")
+                
+                # Set source language for tokenizer
+                tokenizer.src_lang = src_mbart
+                
+                # Tokenize input and move to device
+                encoded = tokenizer(text, return_tensors="pt", max_length=1024, truncation=True, padding=True)
+                encoded = {k: v.to(device) for k, v in encoded.items()}
+                
+                # Get target language token ID
+                tgt_lang_token_id = tokenizer.lang_code_to_id[tgt_mbart]
+                
+                if progress_callback:
+                    progress_callback(50, f"Translating on {device_label}...")
+                
+                # Generate translation with forced target language
+                # Use torch.no_grad() for faster inference and lower memory usage
+                # This is 100% LOCAL translation using GPU (no API calls)
+                logger.debug(f"🔄 Translating on {device_label} using local mBART-50 model...")
+                
+                with torch.no_grad():
+                    generated_tokens = model.generate(
+                        **encoded,
+                        forced_bos_token_id=tgt_lang_token_id,
+                        max_length=1024,
+                        num_beams=5,  # Beam search for better quality
+                        early_stopping=True,
+                        do_sample=False
+                    )
+                
+                # Decode translation (move back to CPU for decoding)
+                translation = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)[0]
+                
+                if progress_callback:
+                    progress_callback(100, "Translation completed")
+                
+                logger.info(f"✅ Translated on {device_label} from {LANG_NAMES.get(source_lang, source_lang)} to {LANG_NAMES.get(target_lang, target_lang)} ({len(translation.split())} words)")
+                return translation
+            else:
+                # Chunk text and translate in parts for large texts
+                if progress_callback:
+                    progress_callback(5, f"Preparing to translate {total_words} words in chunks...")
+                
+                # Split into chunks
+                chunks = []
+                for i in range(0, total_words, CHUNK_SIZE_WORDS):
+                    chunk_words = text_words[i:i + CHUNK_SIZE_WORDS]
+                    chunks.append(" ".join(chunk_words))
+                
+                total_chunks = len(chunks)
+                logger.info(f"🔄 Translating {total_words} words in {total_chunks} chunks on {device_label}...")
+                
+                # Set source language for tokenizer once
+                tokenizer.src_lang = src_mbart
+                tgt_lang_token_id = tokenizer.lang_code_to_id[tgt_mbart]
+                
+                translated_chunks = []
+                for i, chunk in enumerate(chunks, 1):
+                    chunk_progress = 10 + int((i - 1) / total_chunks * 80)  # 10-90%
+                    
+                    if progress_callback:
+                        progress_callback(
+                            chunk_progress,
+                            f"Translating chunk {i}/{total_chunks} ({len(chunk.split())} words)..."
+                        )
+                    
+                    # Tokenize chunk
+                    encoded = tokenizer(chunk, return_tensors="pt", max_length=1024, truncation=True, padding=True)
+                    encoded = {k: v.to(device) for k, v in encoded.items()}
+                    
+                    # Generate translation
+                    with torch.no_grad():
+                        generated_tokens = model.generate(
+                            **encoded,
+                            forced_bos_token_id=tgt_lang_token_id,
+                            max_length=1024,
+                            num_beams=5,
+                            early_stopping=True,
+                            do_sample=False
+                        )
+                    
+                    # Decode chunk translation
+                    chunk_translation = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)[0]
+                    translated_chunks.append(chunk_translation)
+                    
+                    logger.debug(f"   ✓ Chunk {i}/{total_chunks} translated")
+                
+                # Combine translated chunks
+                if progress_callback:
+                    progress_callback(95, "Combining translated chunks...")
+                
+                translation = " ".join(translated_chunks)
+                
+                if progress_callback:
+                    progress_callback(100, "Translation completed")
+                
+                logger.info(f"✅ Translated {total_words} words in {total_chunks} chunks on {device_label} from {LANG_NAMES.get(source_lang, source_lang)} to {LANG_NAMES.get(target_lang, target_lang)} ({len(translation.split())} words)")
+                return translation
             
         except Exception as e:
             logger.error(f"Translation failed: {e}")
             import traceback
             logger.error(traceback.format_exc())
+            if progress_callback:
+                progress_callback(0, f"Translation error: {str(e)}")
             return text
     
     def _chunk_text(self, text: str, chunk_size: Optional[int] = None) -> List[str]:
@@ -681,7 +769,10 @@ class SummaryService:
                 chunk_text,
                 max_length=max_length,
                 min_length=min_length,
-                do_sample=False
+                do_sample=False,
+                num_beams=4,  # Beam search for better quality
+                length_penalty=0.8,  # Slight penalty for shorter summaries
+                early_stopping=True
             )
             
             summary_text = result[0]['summary_text'] if isinstance(result, list) else result['summary_text']
@@ -748,7 +839,10 @@ class SummaryService:
                 combined_text,
                 max_length=max_length,
                 min_length=min_length,
-                do_sample=False
+                do_sample=False,
+                num_beams=4,  # Beam search for better quality
+                length_penalty=0.8,  # Slight penalty for shorter summaries
+                early_stopping=True
             )
             
             overview = result[0]['summary_text'] if isinstance(result, list) else result['summary_text']
@@ -963,9 +1057,29 @@ class SummaryService:
         Returns:
             Tuple of (min_length, max_length) for summarization.
         """
-        # Increased max_length from 150 to 250 to allow longer summaries and reduce truncation
-        max_length = max(30, min(int(input_length * compression_ratio), 250))
-        min_length = min(20, int(input_length * 0.1))
+        # Improved calculation to generate more comprehensive summaries
+        # For longer texts, allow summaries up to 300 tokens
+        # Minimum length is based on a percentage but ensures at least 30 words for better quality
+        calculated_max = int(input_length * compression_ratio)
+        
+        # Scale max_length based on input size:
+        # - Small texts (< 100 words): use calculated value, cap at 100
+        # - Medium texts (100-500 words): cap at 200
+        # - Large texts (> 500 words): cap at 300 for comprehensive summaries
+        if input_length < 100:
+            max_length = max(30, min(calculated_max, 100))
+        elif input_length < 500:
+            max_length = max(50, min(calculated_max, 200))
+        else:
+            max_length = max(80, min(calculated_max, 300))
+        
+        # Minimum length: ensure at least 50% of max_length or 15% of input_length, whichever is smaller
+        # But never less than 20 words for readability and quality
+        min_length = max(20, min(int(max_length * 0.5), int(input_length * 0.15)))
+        
+        # Ensure min_length is always less than max_length
+        min_length = min(min_length, max_length - 5) if max_length > 25 else min_length
+        
         return min_length, max_length
     
     def summarize(
@@ -1095,11 +1209,17 @@ class SummaryService:
                 
                 logger.info(f"   Chunk {i+1}/{len(chunks)}: {input_len} words -> target {min_length}-{max_length}")
                 
+                # Use beam search for better quality summaries
+                # num_beams=4 provides a good balance between quality and speed
+                # length_penalty encourages summaries closer to target length
                 result = self.summarizer(
                     chunk,
                     max_length=max_length,
                     min_length=min_length,
-                    do_sample=False
+                    do_sample=False,
+                    num_beams=4,  # Beam search for better quality
+                    length_penalty=0.8,  # Slight penalty for shorter summaries to encourage more complete ones
+                    early_stopping=True  # Stop when all beams reach EOS
                 )
                 
                 summary_text = result[0]['summary_text'] if isinstance(result, list) else result['summary_text']

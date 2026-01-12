@@ -1,20 +1,15 @@
-# PowerShell script to start the Python summarization backend on Windows
-# Usage: .\scripts\start-python-backend.ps1 (from project root)
-#        or cd backend && ..\scripts\start-python-backend.ps1
+# PowerShell script to start the backend from backend directory
+# Usage: .\start.ps1 (from backend directory)
 
-Write-Host "Starting TubeScribe Python Summarization Backend..." -ForegroundColor Cyan
+$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+$backendDir = $scriptDir
+$projectRoot = Split-Path -Parent $backendDir
+
+Write-Host "Starting TubeScribe Python Backend..." -ForegroundColor Cyan
 Write-Host ""
 
-# Get the project root directory (where this script is located)
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$projectRoot = Split-Path -Parent $scriptDir
-
-# Change to project root if we're not already there
-$currentDir = Get-Location
-if ($currentDir.Path -ne $projectRoot) {
-    Write-Host "Changing to project root: $projectRoot" -ForegroundColor Yellow
-    Set-Location $projectRoot
-}
+# Change to project root for venv access
+Set-Location $projectRoot
 
 # Check if Python is installed
 try {
@@ -25,7 +20,7 @@ try {
     exit 1
 }
 
-# Check if virtual environment exists (in project root)
+# Check if virtual environment exists
 $venvPath = Join-Path $projectRoot "venv"
 if (-not (Test-Path $venvPath)) {
     Write-Host "Creating virtual environment..." -ForegroundColor Yellow
@@ -42,14 +37,12 @@ $activateScript = Join-Path $venvPath "Scripts\Activate.ps1"
 if (Test-Path $activateScript) {
     & $activateScript
 } else {
-    Write-Host "ERROR: Virtual environment activation script not found." -ForegroundColor Red
     Write-Host "Trying alternative activation method..." -ForegroundColor Yellow
     $env:VIRTUAL_ENV = $venvPath
     $env:PATH = "$env:VIRTUAL_ENV\Scripts;$env:PATH"
 }
 
 # Check if requirements are installed
-$requirementsPath = Join-Path $projectRoot "backend\requirements.txt"
 try {
     python -c "import fastapi" 2>$null
     if ($LASTEXITCODE -ne 0) {
@@ -57,7 +50,7 @@ try {
     }
 } catch {
     Write-Host "Installing dependencies (this may take several minutes on first run)..." -ForegroundColor Yellow
-    pip install -r $requirementsPath
+    pip install -r (Join-Path $backendDir "requirements.txt")
     if ($LASTEXITCODE -ne 0) {
         Write-Host "ERROR: Failed to install dependencies." -ForegroundColor Red
         exit 1
@@ -65,9 +58,9 @@ try {
 }
 
 # Check if app.py exists
-$appPath = Join-Path $projectRoot "backend\app.py"
+$appPath = Join-Path $backendDir "app.py"
 if (-not (Test-Path $appPath)) {
-    Write-Host "ERROR: backend\app.py not found. Please restore app.py to backend folder." -ForegroundColor Red
+    Write-Host "ERROR: app.py not found in backend directory." -ForegroundColor Red
     exit 1
 }
 
@@ -80,7 +73,5 @@ Write-Host "Press Ctrl+C to stop the server" -ForegroundColor Yellow
 Write-Host ""
 
 # Start the server from backend directory
-$backendPath = Join-Path $projectRoot "backend"
-Push-Location $backendPath
+Set-Location $backendDir
 uvicorn app:app --host 0.0.0.0 --port 8000 --reload
-Pop-Location

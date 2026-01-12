@@ -1,8 +1,12 @@
 @echo off
-REM Script to start the Python summarization backend on Windows
-REM Usage: scripts\start-python-backend.bat
+REM Script to start the backend from backend directory
+REM Usage: start.bat (from backend directory)
 
-echo Starting TubeScribe Python Summarization Backend...
+cd /d %~dp0
+set BACKEND_DIR=%~dp0
+cd /d %~dp0\..
+
+echo Starting TubeScribe Python Backend...
 echo.
 
 REM Check if Python is installed
@@ -35,7 +39,7 @@ REM Check if requirements are installed
 python -c "import fastapi" >nul 2>&1
 if errorlevel 1 (
     echo Installing dependencies (this may take several minutes on first run)...
-    pip install -r backend\requirements.txt
+    pip install -r "%BACKEND_DIR%requirements.txt"
     if errorlevel 1 (
         echo ERROR: Failed to install dependencies.
         exit /b 1
@@ -43,8 +47,8 @@ if errorlevel 1 (
 )
 
 REM Check if app.py exists
-if not exist "backend\app.py" (
-    echo ERROR: backend\app.py not found. Please restore app.py to backend folder.
+if not exist "%BACKEND_DIR%app.py" (
+    echo ERROR: app.py not found in backend directory.
     exit /b 1
 )
 
@@ -56,7 +60,6 @@ echo.
 echo Press Ctrl+C to stop the server
 echo.
 
-REM Start the server from backend directory
-cd backend
+REM Start the server
+cd /d %BACKEND_DIR%
 uvicorn app:app --host 0.0.0.0 --port 8000 --reload
-cd ..

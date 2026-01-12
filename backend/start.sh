@@ -1,10 +1,17 @@
 #!/bin/bash
 
-# Script to start the Python summarization backend
-# Usage: ./scripts/start-python-backend.sh
+# Script to start the backend from backend directory
+# Usage: ./start.sh (from backend directory)
 
-echo "🚀 Starting TubeScribe Python Summarization Backend..."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+BACKEND_DIR="$SCRIPT_DIR"
+PROJECT_ROOT="$(dirname "$BACKEND_DIR")"
+
+echo "🚀 Starting TubeScribe Python Backend..."
 echo ""
+
+# Change to project root for venv access
+cd "$PROJECT_ROOT"
 
 # Check if Python is installed
 if ! command -v python3 &> /dev/null; then
@@ -25,12 +32,12 @@ source venv/bin/activate
 # Check if requirements are installed
 if ! python -c "import fastapi" &> /dev/null; then
     echo "📥 Installing dependencies (this may take several minutes on first run)..."
-    pip install -r backend/requirements.txt
+    pip install -r "$BACKEND_DIR/requirements.txt"
 fi
 
 # Check if app.py exists
-if [ ! -f "backend/app.py" ]; then
-    echo "❌ backend/app.py not found. Please restore app.py to backend folder."
+if [ ! -f "$BACKEND_DIR/app.py" ]; then
+    echo "❌ app.py not found in backend directory."
     exit 1
 fi
 
@@ -43,6 +50,5 @@ echo "Press Ctrl+C to stop the server"
 echo ""
 
 # Start the server from backend directory
-cd backend
+cd "$BACKEND_DIR"
 uvicorn app:app --host 0.0.0.0 --port 8000 --reload
-cd ..

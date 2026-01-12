@@ -29,6 +29,7 @@ import {
 } from './types';
 import * as GeminiService from './services/geminiService';
 import * as SummarizationService from './services/summarizationService';
+import { LanguageInfo } from './services/summarizationService';
 import './index.css';
 
 const App: React.FC = () => {
@@ -50,7 +51,9 @@ const App: React.FC = () => {
   const [detectedLanguage, setDetectedLanguage] = useState<string>(''); // Source language detected
   const [summary, setSummary] = useState<string>('');
   const [keywords, setKeywords] = useState<string[]>([]);
-  const [targetLang, setTargetLang] = useState<TargetLanguage>(TargetLanguage.ORIGINAL);
+  const [targetLang, setTargetLang] = useState<string>('AUTO'); // Use language code or 'AUTO'
+  const [availableLanguages, setAvailableLanguages] = useState<LanguageInfo[]>([]); // Languages from backend
+  const [videoId, setVideoId] = useState<string | null>(null); // Store video ID for cache lookups
 
   // Chat state
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
@@ -70,8 +73,58 @@ const App: React.FC = () => {
     transcriptionProgress?: number;
   } | null>(null);
   const [displayProgress, setDisplayProgress] = useState(0); // Smoothed progress for display
+  
+  // Translation progress tracking
+  const [translationProgress, setTranslationProgress] = useState<{
+    status: string;
+    progress: number;
+    message: string;
+    translationProgress?: number;
+  } | null>(null);
+  const [displayTranslationProgress, setDisplayTranslationProgress] = useState(0); // Smoothed progress for display
 
   const [activeTab, setActiveTab] = useState<'transcript' | 'summary' | 'translation' | 'chat'>('transcript');
+
+  // Fetch supported languages from backend on mount
+  useEffect(() => {
+    const fetchLanguages = async () => {
+      try {
+        const languages = await SummarizationService.getSupportedLanguages();
+        if (languages.length > 0) {
+          setAvailableLanguages(languages);
+          console.log('✅ Loaded supported languages from backend:', languages.length);
+        } else {
+          // Fallback to default languages if backend is not available
+          console.warn('⚠️ Could not fetch languages from backend, using fallback');
+          setAvailableLanguages([
+            { code: 'AUTO', mbart_code: 'AUTO', name: 'Auto-detect (same as source)' },
+            { code: 'en', mbart_code: 'en_XX', name: 'English' },
+            { code: 'es', mbart_code: 'es_XX', name: 'Spanish' },
+            { code: 'fr', mbart_code: 'fr_XX', name: 'French' },
+            { code: 'de', mbart_code: 'de_DE', name: 'German' },
+            { code: 'zh', mbart_code: 'zh_CN', name: 'Chinese' },
+            { code: 'ja', mbart_code: 'ja_XX', name: 'Japanese' },
+            { code: 'ko', mbart_code: 'ko_KR', name: 'Korean' },
+            { code: 'hi', mbart_code: 'hi_IN', name: 'Hindi' },
+            { code: 'ar', mbart_code: 'ar_AR', name: 'Arabic' },
+            { code: 'pt', mbart_code: 'pt_XX', name: 'Portuguese' },
+            { code: 'it', mbart_code: 'it_IT', name: 'Italian' },
+            { code: 'ru', mbart_code: 'ru_RU', name: 'Russian' },
+            { code: 'nl', mbart_code: 'nl_XX', name: 'Dutch' },
+            { code: 'tr', mbart_code: 'tr_TR', name: 'Turkish' },
+            { code: 'vi', mbart_code: 'vi_VN', name: 'Vietnamese' },
+            { code: 'ms', mbart_code: 'ms_XX', name: 'Malay' },
+          ]);
+        }
+      } catch (error) {
+        console.error('Error fetching languages:', error);
+      }
+    };
+    
+    if (view === 'app') {
+      fetchLanguages();
+    }
+  }, [view]);
 
   // Toggle Dark Mode
   useEffect(() => {
@@ -83,6 +136,43 @@ const App: React.FC = () => {
       localStorage.setItem('theme', 'light');
     }
   }, [isDarkMode]);
+
+  // Helper function to convert language code to TargetLanguage enum (for backward compatibility)
+  const getTargetLanguageForService = (langCode: string): TargetLanguage => {
+    if (langCode === 'AUTO') return TargetLanguage.ORIGINAL;
+    
+    const lang = availableLanguages.find(l => l.code === langCode || l.mbart_code === langCode);
+    if (!lang) return TargetLanguage.ORIGINAL;
+    
+    // Map language names to TargetLanguage enum
+    const nameMap: Record<string, TargetLanguage> = {
+      'English': TargetLanguage.ENGLISH,
+      'Spanish': TargetLanguage.SPANISH,
+      'French': TargetLanguage.FRENCH,
+      'German': TargetLanguage.GERMAN,
+      'Chinese': TargetLanguage.CHINESE_SIMPLIFIED,
+      'Japanese': TargetLanguage.JAPANESE,
+      'Korean': TargetLanguage.KOREAN,
+      'Hindi': TargetLanguage.HINDI,
+      'Arabic': TargetLanguage.ARABIC,
+      'Portuguese': TargetLanguage.PORTUGUESE,
+      'Italian': TargetLanguage.ITALIAN,
+      'Russian': TargetLanguage.RUSSIAN,
+      'Dutch': TargetLanguage.DUTCH,
+      'Turkish': TargetLanguage.TURKISH,
+      'Vietnamese': TargetLanguage.VIETNAMESE,
+      'Malay': TargetLanguage.MALAY,
+    };
+    
+    return nameMap[lang.name] || TargetLanguage.ORIGINAL;
+  };
+
+  // Get display name for selected language
+  const getLanguageDisplayName = (langCode: string): string => {
+    if (langCode === 'AUTO') return 'Original (Auto-Detect)';
+    const lang = availableLanguages.find(l => l.code === langCode || l.mbart_code === langCode);
+    return lang?.name || langCode;
+  };
 
   // Clear translated transcript when language changes (force re-translation)
   useEffect(() => {
@@ -117,6 +207,30 @@ const App: React.FC = () => {
 
     return () => clearInterval(interval);
   }, [transcriptionProgress?.progress]);
+
+  // Smooth translation progress animation
+  useEffect(() => {
+    if (!translationProgress) {
+      setDisplayTranslationProgress(0);
+      return;
+    }
+
+    const targetProgress = translationProgress.progress || 0;
+    
+    // Animate progress smoothly
+    const interval = setInterval(() => {
+      setDisplayTranslationProgress((prev) => {
+        const currentDiff = targetProgress - prev;
+        if (Math.abs(currentDiff) < 0.5) {
+          return targetProgress; // Close enough, set directly
+        }
+        // Smooth interpolation (ease out)
+        return prev + currentDiff * 0.1;
+      });
+    }, 50); // Update every 50ms for smooth animation
+
+    return () => clearInterval(interval);
+  }, [translationProgress?.progress]);
 
   const toggleTheme = () => {
     setIsDarkMode(!isDarkMode);
@@ -153,16 +267,19 @@ const App: React.FC = () => {
     setTranscriptionProgress({ status: 'starting', progress: 0, message: 'Initializing...' });
     setDisplayProgress(0);
 
-    // Extract video ID for progress tracking
+    // Extract video ID for progress tracking and caching
     const videoIdMatch = videoUrl.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-    const videoId = videoIdMatch ? videoIdMatch[1] : null;
+    const currentVideoId = videoIdMatch ? videoIdMatch[1] : null;
+    if (currentVideoId) {
+      setVideoId(currentVideoId); // Store video ID for later use in translation
+    }
 
     // Set up Server-Sent Events for real-time progress updates
     let eventSource: EventSource | null = null;
     
-    if (videoId) {
+    if (currentVideoId) {
       try {
-        eventSource = new EventSource(`http://localhost:8000/api/progress/${videoId}/stream`);
+        eventSource = new EventSource(`http://localhost:8000/api/progress/${currentVideoId}/stream`);
         
         eventSource.onmessage = (event) => {
           try {
@@ -189,7 +306,7 @@ const App: React.FC = () => {
         // Fallback to polling if SSE fails
         const progressInterval = setInterval(async () => {
           try {
-              const response = await fetch(`http://localhost:8000/api/progress/${videoId}`);
+              const response = await fetch(`http://localhost:8000/api/progress/${currentVideoId}`);
             if (response.ok) {
               const progress = await response.json();
               setTranscriptionProgress(progress);
@@ -215,6 +332,11 @@ const App: React.FC = () => {
       const originalResult = await GeminiService.generateTranscript(videoUrl, TargetLanguage.ORIGINAL);
       setTranscript(originalResult);  // Store original
       setDetectedLanguage('Auto-detected');
+      
+      // Video ID is already stored above
+      if (currentVideoId) {
+        console.log(`💾 [FLOW] Video ID available for cache: ${currentVideoId}`);
+      }
       
       // Don't auto-translate during transcription - let user do it in Step 2
       setTranslatedTranscript('');
@@ -270,9 +392,12 @@ const App: React.FC = () => {
       // NEW FLOW: Transcript (original) → Translate → Summarize
       let textToSummarize = transcript; // Start with original transcript
       
-      if (targetLang !== TargetLanguage.ORIGINAL) {
+      if (targetLang !== 'AUTO') {
+        const targetLangForService = getTargetLanguageForService(targetLang);
+        const langDisplayName = getLanguageDisplayName(targetLang);
+        
         // STEP 1: Translate transcript to target language first
-        console.log(`📊 [FLOW] Step 1: Translating transcript to ${targetLang}...`);
+        console.log(`📊 [FLOW] Step 1: Translating transcript to ${langDisplayName}...`);
         
         // Use already translated transcript if available, otherwise translate now
         if (translatedTranscript) {
@@ -280,20 +405,27 @@ const App: React.FC = () => {
           console.log('📊 [FLOW] Using cached translated transcript');
         } else {
           console.log('📊 [FLOW] Translating transcript now...');
-          textToSummarize = await GeminiService.translateContent(transcript, targetLang);
+          // Use video_id if available to fetch from cache instead of sending text
+          const translateResult = await GeminiService.translateContent(
+            transcript, 
+            targetLangForService,
+            videoId || undefined
+          );
+          textToSummarize = translateResult.translatedText;
           setTranslatedTranscript(textToSummarize); // Cache it
         }
         
         // STEP 2: Summarize the TRANSLATED transcript
-        // Since transcript is already in target language, summarize with AUTO (same language)
-        console.log(`📊 [FLOW] Step 2: Summarizing translated transcript (already in ${targetLang})...`);
+        // Use the language code from backend for summarization
+        const langCode = availableLanguages.find(l => l.code === targetLang || l.mbart_code === targetLang)?.code || targetLang;
+        console.log(`📊 [FLOW] Step 2: Summarizing translated transcript (already in ${langDisplayName})...`);
         const result = await SummarizationService.summarizeWithKeywords(
           textToSummarize,
-          null // AUTO - summarize in the language of the input (which is already translated)
+          langCode === 'AUTO' ? null : langCode // Pass language code or null for AUTO
         );
         setSummary(result.summary);
         setKeywords(result.keywords);
-        console.log(`✅ [FLOW] Summary generated in ${targetLang}`);
+        console.log(`✅ [FLOW] Summary generated in ${langDisplayName}`);
         setActiveTab('summary');
       } else {
         // Original language - just summarize directly
@@ -333,15 +465,50 @@ const App: React.FC = () => {
     setLoadingTranslation(true);
     setStatus(ProcessingStatus.PROCESSING);
     setActiveTab('translation');
+    setTranslationProgress({ status: 'translating', progress: 0, message: 'Starting translation...' });
+    setDisplayTranslationProgress(0);
 
     try {
-      console.log(`🌍 [FLOW] Step 2: Translating transcript to ${targetLang}...`);
-      const result = await GeminiService.translateContent(transcript, targetLang);
-      setTranslatedTranscript(result);
+      const targetLangForService = getTargetLanguageForService(targetLang);
+      const langDisplayName = getLanguageDisplayName(targetLang);
+      console.log(`🌍 [FLOW] Step 2: Translating transcript to ${langDisplayName}...`);
+      
+      // Progress callback for real-time updates
+      const progressCallback = (progress: number, message: string) => {
+        setTranslationProgress({
+          status: 'translating',
+          progress: progress,
+          message: message,
+          translationProgress: progress
+        });
+      };
+      
+      // Use video_id if available to fetch from cache instead of sending text
+      const result = await GeminiService.translateContent(
+        transcript, 
+        targetLangForService,
+        videoId || undefined,
+        progressCallback
+      );
+      
+      setTranslatedTranscript(result.translatedText);
+      setTranslationProgress({
+        status: 'completed',
+        progress: 100,
+        message: 'Translation completed',
+        translationProgress: 100
+      });
+      setDisplayTranslationProgress(100);
       setStatus(ProcessingStatus.COMPLETED);
       console.log('✅ [FLOW] Translation complete');
     } catch (error) {
       console.error(error);
+      setTranslationProgress({
+        status: 'error',
+        progress: 0,
+        message: `Translation failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        translationProgress: 0
+      });
       setStatus(ProcessingStatus.ERROR);
     } finally {
       setLoadingTranslation(false);
@@ -384,7 +551,7 @@ const App: React.FC = () => {
     return <Menu onStart={handleStart} isDarkMode={isDarkMode} toggleTheme={toggleTheme} />;
   }
 
-  const isTranslating = targetLang !== TargetLanguage.ORIGINAL;
+  const isTranslating = targetLang !== 'AUTO';
 
   return (
     // UPDATED: Use lg:h-screen and lg:overflow-hidden to prevent body scroll on desktop
@@ -453,14 +620,19 @@ const App: React.FC = () => {
                     <Globe size={16} className="text-gray-500 dark:text-gray-400" />
                     <select
                       value={targetLang}
-                      onChange={(e) => setTargetLang(e.target.value as TargetLanguage)}
+                      onChange={(e) => setTargetLang(e.target.value)}
                       className="appearance-none pl-3 pr-8 py-2 bg-gray-100 dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-lg text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none text-gray-900 dark:text-white cursor-pointer"
                     >
-                      {Object.values(TargetLanguage).map((lang) => (
-                        <option key={lang} value={lang}>
-                          {lang}
-                        </option>
-                      ))}
+                      {availableLanguages.length > 0 ? (
+                        availableLanguages.map((lang) => (
+                          <option key={lang.code} value={lang.code}>
+                            {lang.name === 'Auto-detect (same as source)' ? 'Original (Auto-Detect)' : lang.name}
+                          </option>
+                        ))
+                      ) : (
+                        // Fallback while loading
+                        <option value="AUTO">Original (Auto-Detect)</option>
+                      )}
                     </select>
                   </div>
                 </div>
@@ -552,7 +724,7 @@ const App: React.FC = () => {
                           {translatedTranscript && isTranslating && <span className="text-xs font-normal text-green-500 dark:text-green-400">(Done)</span>}
                         </div>
                         <div className="text-xs opacity-75">
-                          {isTranslating ? `Translate transcript to ${targetLang}` : 'Select a language to enable'}
+                          {isTranslating ? `Translate transcript to ${getLanguageDisplayName(targetLang)}` : 'Select a language to enable'}
                         </div>
                       </div>
                       
@@ -612,7 +784,7 @@ const App: React.FC = () => {
                         </div>
                         <div className="text-xs opacity-75">
                           {isTranslating 
-                            ? `Generate summary in ${targetLang}` 
+                            ? `Generate summary in ${getLanguageDisplayName(targetLang)}` 
                             : 'Generate summary in original language'
                           }
                         </div>
@@ -773,9 +945,34 @@ const App: React.FC = () => {
               )}
               {activeTab === 'translation' && (
                 <div className="flex flex-col h-full gap-4">
+                  {translationProgress && loadingTranslation && (
+                    <div className="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-6 flex-shrink-0">
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h3 className="font-bold text-lg text-gray-800 dark:text-gray-200">
+                            {translationProgress.status === 'translating' && '🔄 Translating'}
+                            {translationProgress.status === 'completed' && '✅ Translation Completed'}
+                            {translationProgress.status === 'error' && '❌ Translation Error'}
+                          </h3>
+                          <span className="text-sm font-medium text-gray-600 dark:text-gray-400">
+                            {Math.round(displayTranslationProgress)}%
+                          </span>
+                        </div>
+                        
+                        <ProgressBar
+                          progress={displayTranslationProgress}
+                          label={translationProgress.message || 'Translating...'}
+                          color={
+                            translationProgress.status === 'translating' ? 'green' :
+                            translationProgress.status === 'completed' ? 'green' : 'blue'
+                          }
+                        />
+                      </div>
+                    </div>
+                  )}
                   <div className="flex-grow min-h-0">
                     <ResultCard
-                      title={`Step 2: Translated Transcript (${targetLang})`}
+                      title={`Step 2: Translated Transcript (${getLanguageDisplayName(targetLang)})`}
                       content={translatedTranscript || (transcript ? 'Click "Translate" in the Processing Flow to translate the transcript.' : 'Generate a transcript first.')}
                       isLoading={loadingTranslation}
                       type="markdown"
@@ -791,7 +988,7 @@ const App: React.FC = () => {
                   )}
                   <div className="flex-grow min-h-0">
                     <ResultCard
-                      title={`Step ${isTranslating ? '3' : '2'}: Summary ${isTranslating ? `(${targetLang})` : '(Original)'}`}
+                      title={`Step ${isTranslating ? '3' : '2'}: Summary ${isTranslating ? `(${getLanguageDisplayName(targetLang)})` : '(Original)'}`}
                       content={summary || (transcript ? 'Click "Summarize" in the Processing Flow to generate a summary.' : 'Generate a transcript first.')}
                       isLoading={loadingSummary}
                       type="markdown"

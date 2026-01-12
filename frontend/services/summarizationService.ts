@@ -19,9 +19,20 @@ export interface SummarizeResponse {
 const SUMMARIZATION_BACKEND_URL = process.env.SUMMARIZATION_BACKEND_URL || "http://localhost:8000";
 
 /**
- * Maps TargetLanguage enum to mBART language codes
+ * Maps TargetLanguage enum or language code to mBART language codes
+ * Accepts both TargetLanguage enum values (e.g., 'English') and language codes (e.g., 'en', 'en_XX')
  */
-const getLanguageCode = (targetLanguage: string): string => {
+const getLanguageCode = (targetLanguage: string | null): string => {
+  if (!targetLanguage || targetLanguage === 'AUTO' || targetLanguage === 'null') {
+    return 'AUTO';
+  }
+  
+  // If it's already an mBART code (contains underscore), return as is
+  if (targetLanguage.includes('_')) {
+    return targetLanguage;
+  }
+  
+  // Map TargetLanguage enum values to mBART codes
   const langMap: Record<string, string> = {
     'English': 'en_XX',
     'Spanish': 'es_XX',
@@ -39,9 +50,26 @@ const getLanguageCode = (targetLanguage: string): string => {
     'Turkish': 'tr_TR',
     'Vietnamese': 'vi_VN',
     'Malay': 'ms_XX',
+    // Also support 2-letter codes
+    'en': 'en_XX',
+    'es': 'es_XX',
+    'fr': 'fr_XX',
+    'de': 'de_DE',
+    'zh': 'zh_CN',
+    'ja': 'ja_XX',
+    'ko': 'ko_KR',
+    'hi': 'hi_IN',
+    'ar': 'ar_AR',
+    'pt': 'pt_XX',
+    'it': 'it_IT',
+    'ru': 'ru_RU',
+    'nl': 'nl_XX',
+    'tr': 'tr_TR',
+    'vi': 'vi_VN',
+    'ms': 'ms_XX',
   };
   
-  return langMap[targetLanguage] || 'en_XX';
+  return langMap[targetLanguage] || targetLanguage; // Return as-is if not found (might be valid mBART code)
 };
 
 /**
@@ -75,14 +103,14 @@ export const checkBackendHealth = async (): Promise<boolean> => {
  */
 export const summarizeWithKeywords = async (
   text: string,
-  targetLanguage: string | null = 'English'
+  targetLanguage: string | null = null
 ): Promise<SummarizeResponse> => {
   if (!text || !text.trim()) {
     throw new Error('Text cannot be empty');
   }
 
   // If null, use special code "AUTO" to let backend detect and use transcript language
-  const langCode = targetLanguage === null ? 'AUTO' : getLanguageCode(targetLanguage);
+  const langCode = targetLanguage === null || targetLanguage === 'null' ? 'AUTO' : getLanguageCode(targetLanguage);
   
   const requestBody: SummarizeRequest = {
     text: text.trim(),
@@ -149,5 +177,36 @@ export const getBackendStatus = async (): Promise<{
   } catch (error) {
     console.warn('Failed to get backend status:', error);
     return null;
+  }
+};
+
+/**
+ * Interface for language information from backend
+ */
+export interface LanguageInfo {
+  code: string;
+  mbart_code: string;
+  name: string;
+}
+
+/**
+ * Get list of supported languages from the backend
+ * This matches the languages supported by the translation model (mBART-50)
+ */
+export const getSupportedLanguages = async (): Promise<LanguageInfo[]> => {
+  try {
+    const response = await fetch(`${SUMMARIZATION_BACKEND_URL}/api/languages`, {
+      method: 'GET',
+      headers: { 'Content-Type': 'application/json' },
+    });
+    if (!response.ok) {
+      throw new Error(`Failed to fetch languages: ${response.statusText}`);
+    }
+    const data = await response.json();
+    return data.languages || [];
+  } catch (error) {
+    console.warn('Failed to get supported languages from backend:', error);
+    // Return empty array on error - frontend will handle gracefully
+    return [];
   }
 };

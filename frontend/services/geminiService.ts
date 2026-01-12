@@ -3,7 +3,9 @@ import { ChatMessage, TargetLanguage } from '../types';
 
 const getAiClient = () => {
   const apiKey = process.env.API_KEY;
+  console.log("🔑 [GEMINI] Checking API key:", apiKey ? "Found" : "Missing");
   if (!apiKey) {
+    console.error("❌ [GEMINI] API_KEY environment variable is missing.");
     throw new Error("API_KEY environment variable is missing.");
   }
   return new GoogleGenAI({ apiKey });
@@ -95,9 +97,9 @@ export const generateTranscript = async (
     if (targetLanguage !== TargetLanguage.ORIGINAL && data.transcript) {
       console.log(`🌍 [TRANSCRIPT] Translation needed to: ${targetLanguage}`);
       console.log("🔄 [TRANSCRIPT] Starting translation...");
-      const translated = await translateContent(data.transcript, targetLanguage);
+      const translateResult = await translateContent(data.transcript, targetLanguage);
       console.log("✅ [TRANSCRIPT] Translation completed");
-      return translated;
+      return translateResult.translatedText;
     }
     
     console.log("✅ [TRANSCRIPT] Process completed successfully");
@@ -121,13 +123,27 @@ export const generateTranscript = async (
  * Translates content using LOCAL Python backend (mBART-50 model).
  * 100% LOCAL - NO API KEYS REQUIRED!
  * Uses GPU if available for fast translation.
+ * 
+ * If video_id is provided, uses cached transcript from transcription instead of text parameter.
+ * This is more efficient as it avoids sending large transcript text over the network.
+ * 
+ * Supports real-time progress tracking via progressCallback. If provided, the function will
+ * connect to the SSE stream and call the callback with progress updates.
+ * 
+ * @param text - Text to translate (required if video_id not provided)
+ * @param targetLanguage - Target language for translation
+ * @param video_id - Optional video ID to use cached transcript instead of text
+ * @param progressCallback - Optional callback function to receive progress updates (progress: number, message: string)
+ * @returns Promise that resolves to the translated text and the request_id for progress tracking
  */
 export const translateContent = async (
   text: string,
-  targetLanguage: TargetLanguage
-): Promise<string> => {
+  targetLanguage: TargetLanguage,
+  video_id?: string,
+  progressCallback?: (progress: number, message: string) => void
+): Promise<{ translatedText: string; requestId?: string }> => {
   if (targetLanguage === TargetLanguage.ORIGINAL) {
-    return text; // No op
+    return { translatedText: text }; // No op
   }
 
   // Map TargetLanguage enum values to language codes for mBART
@@ -153,22 +169,74 @@ export const translateContent = async (
 
   const targetLangCode = languageMap[targetLanguage] || "en";
 
-  console.log(`🔄 [TRANSLATE] Using LOCAL Python backend (mBART-50) for translation to ${targetLanguage}...`);
+  if (video_id) {
+    console.log(`🔄 [TRANSLATE] Using LOCAL Python backend (mBART-50) with cached transcript (video_id: ${video_id}) for translation to ${targetLanguage}...`);
+  } else {
+    console.log(`🔄 [TRANSLATE] Using LOCAL Python backend (mBART-50) for translation to ${targetLanguage}...`);
+  }
 
   try {
+    // Generate request ID for progress tracking
+    const requestId = progressCallback ? `translate_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` : undefined;
+
+    const requestBody: any = {
+      target_language: targetLangCode,
+      source_language: null,  // Auto-detect
+      request_id: requestId
+    };
+
+    // If video_id is provided, use cached transcript; otherwise use text
+    if (video_id) {
+      requestBody.video_id = video_id;
+      // text is optional when video_id is provided
+    } else {
+      requestBody.text = text;
+    }
+
+    // Connect to progress stream if callback provided
+    let eventSource: EventSource | null = null;
+    if (progressCallback && requestId) {
+      try {
+        eventSource = new EventSource(`${PYTHON_BACKEND_URL}/api/translate/${requestId}/stream`);
+        
+        eventSource.onmessage = (event) => {
+          try {
+            const progress = JSON.parse(event.data);
+            const progressValue = progress.progress || progress.translation_progress || 0;
+            const message = progress.message || 'Translating...';
+            progressCallback(progressValue, message);
+            
+            // Close connection if completed or error
+            if (progress.status === 'completed' || progress.status === 'error') {
+              eventSource?.close();
+              eventSource = null;
+            }
+          } catch (error) {
+            console.warn('Failed to parse translation progress:', error);
+          }
+        };
+        
+        eventSource.onerror = (error) => {
+          console.warn('Translation progress SSE connection error:', error);
+          eventSource?.close();
+          eventSource = null;
+        };
+      } catch (error) {
+        console.warn('Failed to connect to translation progress stream:', error);
+        // Continue without progress tracking
+      }
+    }
+
     const response = await fetch(`${PYTHON_BACKEND_URL}/api/translate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        text: text,
-        target_language: targetLangCode,
-        source_language: null  // Auto-detect
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ detail: response.statusText }));
       console.error("❌ [TRANSLATE] Backend returned error:", errorData);
+      eventSource?.close();
       throw new Error(errorData.detail || `Translation failed (${response.status})`);
     }
 
@@ -176,7 +244,19 @@ export const translateContent = async (
     console.log(`✅ [TRANSLATE] Translation complete: ${data.original_length} words -> ${data.translated_length} words`);
     console.log(`   From: ${data.source_language} -> To: ${data.target_language}`);
     
-    return data.translated_text || text;
+    // Ensure progress is at 100%
+    if (progressCallback) {
+      progressCallback(100, 'Translation completed');
+      // Close connection after a short delay
+      setTimeout(() => {
+        eventSource?.close();
+      }, 500);
+    }
+    
+    return {
+      translatedText: data.translated_text || text,
+      requestId: requestId
+    };
   } catch (error) {
     console.error("❌ [TRANSLATE] Error translating content:", error);
     throw new Error(`Failed to translate content: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -278,6 +358,7 @@ export const sendGuideMessage = async (
   prompt += `\nUser: ${newMessage}\nGuide:`;
 
   try {
+    console.log("🚀 [GEMINI] Sending guide message to Gemini...");
     const response = await ai.models.generateContent({
       model: TEXT_MODEL,
       contents: prompt,
@@ -286,9 +367,14 @@ export const sendGuideMessage = async (
       }
     });
 
+    console.log("✅ [GEMINI] Received response from Gemini");
     return response.text || "I'm here to help you get started!";
   } catch (error) {
-    console.error("Error in guide chat:", error);
+    console.error("❌ [GEMINI] Error in guide chat:", error);
+    if (error instanceof Error) {
+      console.error("❌ [GEMINI] Error message:", error.message);
+      console.error("❌ [GEMINI] Error stack:", error.stack);
+    }
     return "I'm having trouble connecting right now, but feel free to just click 'Start Analyzing' to try the app!";
   }
 };

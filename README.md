@@ -24,9 +24,9 @@ View your app in AI Studio: https://ai.studio/apps/drive/1XoeFMJu5ZwUmk2IaGEK5g7
 This project consists of two main components:
 
 1. **Frontend** (React + TypeScript + Vite): User interface
-2. **Python Backend** (`app.py`): Provides video transcription, multilingual summarization, and keyword extraction
+2. **Python Backend** (`backend/app.py`): Provides video transcription, multilingual summarization, and keyword extraction
 
-📚 **For detailed system architecture documentation, see [ARCHITECTURE.md](ARCHITECTURE.md)**
+📚 **For detailed system architecture documentation, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**
 
 ## Prerequisites
 
@@ -101,7 +101,8 @@ source venv/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 
-# Start the server
+# Start the server (from project root)
+cd backend
 uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
@@ -111,8 +112,8 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 <summary><b>🐳 Option C: Docker</b></summary>
 
 ```bash
-# Build the image
-docker build -f Dockerfile.python -t tubescribe-python-backend .
+# Build the image (from project root)
+docker build -f backend/Dockerfile -t tubescribe-python-backend backend
 
 # Run the container
 docker run -p 8000:8000 --memory="4g" tubescribe-python-backend
@@ -131,12 +132,13 @@ docker run -p 8000:8000 --memory="4g" tubescribe-python-backend
 
 **Install Dependencies:**
 ```bash
+cd frontend
 npm install
 ```
 
 **Configure Environment Variables:**
 
-Create a `.env.local` file in the root directory:
+Create a `.env.local` file in the `frontend` directory:
 
 ```env
 VITE_API_KEY=your_gemini_api_key_here
@@ -151,10 +153,11 @@ VITE_API_KEY=your_gemini_api_key_here
 **Get a Gemini API Key (Optional):**
 1. Visit [Google AI Studio](https://aistudio.google.com/app/apikey)
 2. Create a new API key
-3. Add it to `.env.local`
+3. Add it to `frontend/.env.local`
 
 **Start Development Server:**
 ```bash
+cd frontend
 npm run dev
 ```
 
@@ -177,14 +180,14 @@ The frontend will be available at `http://localhost:5173`
 
 ### What's Next?
 
-- 📚 **Detailed Setup:** See [PYTHON_BACKEND_README.md](PYTHON_BACKEND_README.md) for advanced configuration
-- 🚀 **GPU Setup:** See [GPU_SETUP.md](GPU_SETUP.md) to enable GPU acceleration
-- 🔧 **Model Options:** See [MODEL_OPTIONS.md](MODEL_OPTIONS.md) for alternative AI models
+- 📚 **Detailed Setup:** See [docs/PYTHON_BACKEND_README.md](docs/PYTHON_BACKEND_README.md) for advanced configuration
+- 🚀 **GPU Setup:** See [docs/GPU_SETUP.md](docs/GPU_SETUP.md) to enable GPU acceleration
+- 🔧 **Model Options:** See [docs/MODEL_OPTIONS.md](docs/MODEL_OPTIONS.md) for alternative AI models
 - ❓ **Troubleshooting:** Check the [Troubleshooting](#troubleshooting) section below
 
 ## Environment Variables
 
-### Frontend (.env.local)
+### Frontend (frontend/.env.local)
 ```env
 VITE_API_KEY=your_gemini_api_key_here
 ```
@@ -224,22 +227,30 @@ SUMMARIZATION_MODEL=facebook/mbart-large-50-many-to-many-mmt  # Optional: change
 
 ```
 tubescribe-ai/
-├── app.py                      # Python FastAPI backend
-├── requirements.txt            # Python dependencies
-├── Dockerfile.python           # Dockerfile for Python backend
-├── components/                 # React components
-│   ├── ChatInterface.tsx
-│   ├── FileUpload.tsx
-│   ├── KeywordsDisplay.tsx     # Keywords display component
-│   ├── Menu.tsx
-│   ├── ResultCard.tsx
-│   └── YouTubeInput.tsx
-├── services/
-│   ├── geminiService.ts        # Gemini API service
-│   └── summarizationService.ts # Python backend service
-├── server/                     # Node.js backend
-│   ├── index.js
-│   └── package.json
+├── backend/                    # Python backend
+│   ├── app.py                  # FastAPI application
+│   ├── summary.py              # Summarization service
+│   ├── requirements.txt        # Python dependencies
+│   ├── Dockerfile              # Docker configuration
+│   └── test_tubescribe.py      # Test suite
+├── frontend/                   # React frontend
+│   ├── components/             # React components
+│   │   ├── ChatInterface.tsx
+│   │   ├── KeywordsDisplay.tsx
+│   │   ├── Menu.tsx
+│   │   ├── ResultCard.tsx
+│   │   └── YouTubeInput.tsx
+│   ├── services/               # Frontend services
+│   │   ├── geminiService.ts
+│   │   └── summarizationService.ts
+│   ├── App.tsx                 # Main app component
+│   ├── index.tsx               # Entry point
+│   ├── package.json            # Frontend dependencies
+│   └── vite.config.ts          # Vite configuration
+├── docs/                       # Documentation
+│   ├── GPU_SETUP.md
+│   ├── MODEL_OPTIONS.md
+│   └── ... (other docs)
 ├── scripts/                    # Helper scripts
 │   ├── start-python-backend.sh
 │   └── start-python-backend.bat
@@ -257,16 +268,17 @@ tubescribe-ai/
 - `GET /api/progress/{video_id}/stream` - Server-Sent Events (SSE) stream for real-time progress updates
 - `POST /summarize` - Summarize text and extract keywords (multilingual support)
 
-See [PYTHON_BACKEND_README.md](PYTHON_BACKEND_README.md) for detailed API documentation.
+See [docs/PYTHON_BACKEND_README.md](docs/PYTHON_BACKEND_README.md) for detailed API documentation.
 
 
 ## Building for Production
 
 ```bash
 # Build frontend
+cd frontend
 npm run build
 
-# The built files will be in the dist/ directory
+# The built files will be in the frontend/dist/ directory
 ```
 
 ## Known Limitations
@@ -274,16 +286,16 @@ npm run build
 ### Malay Language Support
 **The models used in this project do not support Malay language.** While Malay may appear in some language lists, the underlying AI models (mBART-50, BART, and Whisper) do not provide reliable support for Malay transcription, summarization, or translation. Users processing Malay content may experience reduced accuracy, poor summarization results, or translation errors.
 
-For more details, see [MODEL_OPTIONS.md](MODEL_OPTIONS.md#known-limitations).
+For more details, see [docs/MODEL_OPTIONS.md](docs/MODEL_OPTIONS.md#known-limitations).
 
 ## Troubleshooting
 
 ### Python Backend Issues
-- See [PYTHON_BACKEND_README.md](PYTHON_BACKEND_README.md) for detailed troubleshooting
+- See [docs/PYTHON_BACKEND_README.md](docs/PYTHON_BACKEND_README.md) for detailed troubleshooting
 - Ensure you have at least 4GB RAM available (8GB+ recommended for optimal performance)
 - First run will download ~2-3GB of model files (Whisper + mBART + KeyBERT)
-- GPU setup: See [GPU_SETUP.md](GPU_SETUP.md) for CUDA installation and configuration
-- Model options: See [MODEL_OPTIONS.md](MODEL_OPTIONS.md) for alternative model configurations
+- GPU setup: See [docs/GPU_SETUP.md](docs/GPU_SETUP.md) for CUDA installation and configuration
+- Model options: See [docs/MODEL_OPTIONS.md](docs/MODEL_OPTIONS.md) for alternative model configurations
 
 ### Transcription Issues
 - Ensure the Python backend is running on port 8000
