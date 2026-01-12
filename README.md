@@ -1,8 +1,22 @@
 # TubeScribe AI
 
+<div align="center">
+  <img src="./assets/banner.png" alt="TubeScribe AI - Landing Page and Interface" width="1200" />
+  
+  <p><em>Unlimited, batch transcribe YouTube videos and playlists into accurate text in any language in just seconds.</em></p>
+  <p><strong>Transcribe. Summarize. Translate. Chat.</strong></p>
+</div>
+
 An AI-powered video analysis tool that transcribes, summarizes, translates, and provides interactive chat about YouTube videos using Google Gemini API and multilingual AI models.
 
-View your app in AI Studio: https://ai.studio/apps/drive/1XoeFMJu5ZwUmk2IaGEK5g7YAXiZo8_ht
+<div align="center">
+
+[![Features](https://img.shields.io/badge/Features-Transcribe%20%7C%20Summarize%20%7C%20Translate%20%7C%20Chat-blue)](README.md)
+[![Tech Stack](https://img.shields.io/badge/Tech-React%20%7C%20FastAPI%20%7C%20Whisper%20AI-orange)](README.md)
+[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+
+</div>
+
 
 ## Features
 
